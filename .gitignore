@@ -1,0 +1,35 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Harness local de preview visual do CRM (não faz parte do bundle)
+/preview/
+.vercel
+.env*
+
+# Levantamento do sistema atual — pode conter tela de sistema de terceiro
+tools/recon/saida/
+
+# Arquivos locais de recuperacao
+_to_delete/
