@@ -2,7 +2,18 @@
 
 CRM de WhatsApp do Instituto Vert: conversas, contatos, leads, etiquetas, respostas rápidas, campanhas e relatórios, com o WhatsApp conectado pela Evolution API.
 
-App independente, separado do VertControl, com banco Supabase próprio.
+App independente, separado do VertControl.
+
+## Banco
+
+O CRM usa o Supabase do Instituto Vert (`xiskevunqbvmoclygppc`). Desde 30/10/2026 esse banco é só do CRM e do site institutovert.app: as tabelas da clínica (VertControl) foram exportadas para backup e removidas.
+
+| Migração | Para quê |
+|---|---|
+| `20261030120000_schema_do_crm.sql` | Recria o banco do CRM do zero num projeto novo. Não rodar no banco atual. |
+| `20261030150000_remove_tabelas_da_clinica.sql` | Tira as tabelas da clínica do banco atual. Só depois do backup conferido. |
+
+Detalhes, edge functions e segredos em `supabase/MIGRACAO.md`.
 
 ## Rodar
 
