@@ -80,7 +80,7 @@ export default function AuthLayout({ srTitle, headline, sub, features, children 
               </div>
               <div>
                 <p className="font-extrabold text-2xl text-white leading-none tracking-tight">VERT</p>
-                <p className="text-[11px] text-white/70 tracking-[0.25em] uppercase">Gestão Odontológica</p>
+                <p className="text-[11px] text-white/70 tracking-[0.25em] uppercase">CRM</p>
               </div>
             </>
           )}
@@ -130,7 +130,7 @@ export default function AuthLayout({ srTitle, headline, sub, features, children 
                 </div>
                 <div>
                   <span className="font-extrabold text-xl text-foreground leading-none">VERT</span>
-                  <p className="text-[10px] text-muted-foreground tracking-[0.2em] uppercase">Gestão Odontológica</p>
+                  <p className="text-[10px] text-muted-foreground tracking-[0.2em] uppercase">CRM</p>
                 </div>
               </div>
             )}

@@ -57,7 +57,7 @@ export default function ResetPassword() {
 
   return (
     <AuthLayout
-      srTitle="Definir nova senha — VERT GESTÃO"
+      srTitle="Definir nova senha — VERT CRM"
       headline={
         <>
           Vamos criar

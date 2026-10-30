@@ -24,24 +24,24 @@ import AuthLayout from "@/components/auth/AuthLayout";
 
 const FEATURES = [
   {
-    icon: CalendarCheck,
-    title: "Agenda inteligente",
-    desc: "Consultas, retornos e encaixes em um só lugar",
+    icon: MessageCircle,
+    title: "Todas as conversas num lugar",
+    desc: "O WhatsApp da clínica com a equipe inteira atendendo junto",
   },
   {
-    icon: MessageCircle,
-    title: "CRM com WhatsApp",
-    desc: "Atendimento e conversas integrados à clínica",
+    icon: CalendarCheck,
+    title: "Ninguém fica sem resposta",
+    desc: "Quem está esperando retorno aparece primeiro",
   },
   {
     icon: TrendingUp,
-    title: "Financeiro em tempo real",
-    desc: "Receitas, despesas e relatórios sempre atualizados",
+    title: "Leads e campanhas",
+    desc: "Do primeiro contato à avaliação, com origem e etapa",
   },
   {
     icon: Users,
-    title: "Pacientes integrados",
-    desc: "Histórico, orçamentos e exames conectados",
+    title: "Equipe e permissões",
+    desc: "Cada pessoa vê só o que precisa",
   },
 ];
 
@@ -175,15 +175,15 @@ export default function Login() {
 
   return (
     <AuthLayout
-      srTitle="VERT GESTÃO — Sistema de Gestão Odontológica"
+      srTitle="VERT CRM — atendimento pelo WhatsApp"
       headline={
         <>
-          Sua clínica inteira,
+          Atendimento sem
           <br />
-          em uma só tela.
+          ninguém esquecido.
         </>
       }
-      sub="Agenda, pacientes, financeiro e atendimento no WhatsApp — tudo conectado, tudo em tempo real."
+      sub="As conversas do WhatsApp da clínica, organizadas por quem está esperando resposta."
       features={FEATURES}
     >
 
@@ -292,13 +292,6 @@ export default function Login() {
             </Button>
           </form>
 
-          <p className="text-sm text-muted-foreground text-center mt-6">
-            Ainda não tem conta?{" "}
-            <a href="/cadastro" className="text-primary hover:underline font-semibold">
-              Cadastre-se grátis
-            </a>
-          </p>
-
           {needRefresh && (
             <Button type="button" variant="outline" className="w-full gap-2 mt-5 rounded-xl" onClick={applyUpdate}>
               <RefreshCw className="h-4 w-4" />
@@ -312,13 +305,6 @@ export default function Login() {
               <ShieldCheck className="h-3.5 w-3.5 text-primary" />
               <span>Acesso protegido — bloqueio automático após 3 tentativas incorretas</span>
             </div>
-            <a
-              href="/instalar"
-              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Instalar o app no celular
-            </a>
             <p className="text-xs text-muted-foreground">
               Problemas para acessar?{" "}
               <a href="mailto:admin@vertodonto.com.br" className="text-primary hover:underline">
