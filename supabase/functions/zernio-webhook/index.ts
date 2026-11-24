@@ -17,6 +17,13 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SEGREDO_BRUTO = (Deno.env.get("ZERNIO_WEBHOOK_SECRET") ?? "").trim();
 const WEBHOOK_SECRET =
   SEGREDO_BRUTO.match(/[0-9a-f]{64}/i)?.[0] ?? SEGREDO_BRUTO.replace(/^["'`]+|["'`]+$/g, "").trim();
+// Candidatos: o valor limpo, o bruto e cada trecho de 64 caracteres dele
+// (cobre sobras coladas antes ou depois do segredo).
+const SEGREDOS = Array.from(new Set([
+  WEBHOOK_SECRET,
+  SEGREDO_BRUTO,
+  ...Array.from({ length: Math.max(0, SEGREDO_BRUTO.length - 63) }, (_, i) => SEGREDO_BRUTO.slice(i, i + 64)),
+].filter(Boolean)));
 const ZERNIO_API_KEY = (Deno.env.get("ZERNIO_API_KEY") ?? "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -35,16 +42,19 @@ function iguais(a: string, b: string) {
 }
 
 async function assinaturaValida(raw: string, recebida: string | null) {
-  if (!WEBHOOK_SECRET || !recebida) return false;
-  const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(WEBHOOK_SECRET.trim()), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-  );
-  const bruto = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  const emHex = hex(bruto);
-  const emBase64 = btoa(String.fromCharCode(...new Uint8Array(bruto)));
+  if (!SEGREDOS.length || !recebida) return false;
   // aceita "abc…", "sha256=abc…" e "t=…,v1=abc…"
   const candidatos = recebida.split(",").map((parte) => parte.trim().replace(/^(sha256|v1)=/i, ""));
-  return candidatos.some((c) => iguais(c.toLowerCase(), emHex) || iguais(c, emBase64));
+  for (const segredo of SEGREDOS) {
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(segredo), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    );
+    const bruto = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
+    const emHex = hex(bruto);
+    const emBase64 = btoa(String.fromCharCode(...new Uint8Array(bruto)));
+    if (candidatos.some((c) => iguais(c.toLowerCase(), emHex) || iguais(c, emBase64))) return true;
+  }
+  return false;
 }
 
 /** Tipo do anexo na Zernio -> tipo de mensagem no CRM. */
@@ -209,6 +219,10 @@ Deno.serve(async (req) => {
       temSegredo: WEBHOOK_SECRET.length > 0,
       tamanhoSegredo: WEBHOOK_SECRET.trim().length,
       tamanhoBruto: SEGREDO_BRUTO.length,
+      // 8 primeiros hex do SHA-256 do segredo limpo: confere o valor sem revelá-lo
+      impressao: hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(WEBHOOK_SECRET))).slice(0, 8),
+      // caracteres fora do hex no valor bruto (aspas, espaços…), só os códigos
+      sobras: Array.from(SEGREDO_BRUTO).filter((c) => !/[0-9a-f]/i.test(c)).map((c) => c.charCodeAt(0)),
       formato: assinatura ? assinatura.replace(/[0-9a-f]/gi, "x").slice(0, 24) : null,
       tamanhoAssinatura: assinatura?.length ?? 0,
     });
