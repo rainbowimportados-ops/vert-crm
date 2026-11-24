@@ -97,7 +97,8 @@ cadastrados.
 | `crm-team` | app | true | — |
 | `crm-campaign-dispatch` | app | true | — |
 | `crm-ai-assist` | app | true | `OPENAI_API_KEY`, `AI_API_KEY` |
-| `crm-ai-agent` | evolution-webhook | **false** | `OPENAI_API_KEY` |
+| `zernio-webhook` | Zernio | **false** | `ZERNIO_WEBHOOK_SECRET`, `ZERNIO_API_KEY` |
+| `crm-ai-agent` | evolution-webhook, zernio-webhook | **false** | `OPENAI_API_KEY` (+ `ZERNIO_API_KEY` em conexão Zernio) |
 | `crm-avatars` | evolution-webhook | true | — |
 | `crm-history-import` | evolution-webhook | true | — |
 | `secure-login` | app (login) | **false** | — |
@@ -151,3 +152,59 @@ Depois da carga:
   seção 15 da migration).
 - Configurar no painel o que não é SQL: login por e-mail e Google, URLs de redirecionamento,
   templates de e-mail.
+
+## WhatsApp oficial pelo Zernio (24/11/2026)
+
+O número do Instituto Vert (+55 16 99965-7667) foi conectado ao Zernio pela API oficial do Meta, em
+modo coexistência (o app WhatsApp Business no celular continua funcionando). O CRM passa a aceitar
+conexões com `provider = 'zernio'`, ao lado das da Evolution, sem mexer nelas.
+
+Migração: `20261124120000_provedor_zernio.sql` acrescenta `whatsapp_connections.zernio_account_id`
+e `conversations.provider_conversation_id` (no Zernio o envio é por conversa, não por telefone).
+
+O que muda por função:
+
+| Função | Conexão Evolution | Conexão Zernio |
+|---|---|---|
+| `zernio-webhook` (nova) | — | recebe mensagens, mídias, ecos do celular e status (entregue/lido/falhou) |
+| `crm-send-message` | igual | texto e mídia pela API do Zernio; mídia vai por link temporário do bucket `crm-media` |
+| `crm-ai-agent` | igual | OCR lê a imagem do bucket; a resposta sai pelo Zernio |
+| `crm-campaign-dispatch` | igual | **ainda não adaptada**: campanha no WhatsApp oficial precisa de template aprovado |
+
+Para ligar:
+
+1. Rodar a migração.
+2. Cadastrar os segredos `ZERNIO_API_KEY` (Zernio → Console → API Keys, no workspace do número) e
+   `ZERNIO_WEBHOOK_SECRET` (um valor aleatório longo).
+3. Publicar: `supabase functions deploy zernio-webhook --no-verify-jwt`, e republicar
+   `crm-send-message` e `crm-ai-agent` (a pasta `_shared` vai junto automaticamente).
+4. Cadastrar o webhook no Zernio (uma vez):
+
+   ```sh
+   curl -X POST https://zernio.com/api/v1/webhooks/settings \
+     -H "Authorization: Bearer $ZERNIO_API_KEY" -H "Content-Type: application/json" \
+     -d '{"name":"vert-crm","url":"https://<projeto>.supabase.co/functions/v1/zernio-webhook",
+          "events":["message.received","message.sent","message.delivered","message.read","message.failed"],
+          "secret":"<ZERNIO_WEBHOOK_SECRET>"}'
+   ```
+
+5. Apontar a conexão do CRM para o Zernio. O `zernio_account_id` é o id da conta do WhatsApp no
+   Zernio (`GET /v1/accounts`, campo `_id`):
+
+   ```sql
+   update public.whatsapp_connections
+      set provider = 'zernio', zernio_account_id = '<id da conta no Zernio>',
+          status = 'connected', last_status_at = now()
+    where id = '<id da conexão do Instituto Vert>';
+   ```
+
+   Para voltar à Evolution: `provider = 'evolution'` (as colunas da Evolution não são apagadas).
+
+6. Desligar a instância da Evolution desse número **depois** de testar, para cada mensagem não
+   entrar duas vezes.
+
+Limites do WhatsApp oficial:
+- Resposta livre só dentro de 24h da última mensagem do paciente. Fora disso, só template aprovado
+  (o CRM mostra a falha com essa explicação).
+- Áudio gravado no navegador sai em WebM, que o WhatsApp oficial não aceita. Áudio em OGG/MP3/M4A vai.
+- Etiquetas do WhatsApp Business e fotos de perfil não vêm pela API oficial.

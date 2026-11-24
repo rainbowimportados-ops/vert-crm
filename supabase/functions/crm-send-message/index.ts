@@ -1,5 +1,12 @@
-// Envio de texto e mídia pelo CRM (atendente -> backend -> Evolution).
+// Envio de texto e mídia pelo CRM (atendente -> backend -> Evolution ou Zernio).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  attachmentTypeFor,
+  findZernioConversation,
+  sentMessageId,
+  urlTemporaria,
+  zernioSend,
+} from "../_shared/zernio.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -40,6 +47,83 @@ function decodeBase64(value: string) {
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes;
+}
+
+async function marcaFalha(db: any, messageId: string, erro: string) {
+  await db
+    .from("messages")
+    .update({ delivery_status: "failed", delivery_error: erro.slice(0, 600) })
+    .eq("id", messageId);
+  return json({ ok: false, sent: false, messageId, error: erro }, 200);
+}
+
+async function enviaPeloZernio(
+  db: any,
+  o: {
+    messageId: string;
+    conversationId: string;
+    accountId: string;
+    phone: string;
+    type: string;
+    text: string;
+    fileName: string;
+  },
+) {
+  if (!o.accountId) return await marcaFalha(db, o.messageId, "Conexão Zernio sem zernio_account_id.");
+
+  // Id da conversa no Zernio: gravado pelo zernio-webhook quando o paciente escreve.
+  const { data: convRow } = await db
+    .from("conversations")
+    .select("provider_conversation_id")
+    .eq("id", o.conversationId)
+    .maybeSingle();
+  let zernioConversation: string | null = convRow?.provider_conversation_id ?? null;
+  if (!zernioConversation) {
+    zernioConversation = await findZernioConversation(o.accountId, o.phone);
+    if (zernioConversation) {
+      await db.from("conversations").update({ provider_conversation_id: zernioConversation }).eq("id", o.conversationId);
+    }
+  }
+  if (!zernioConversation) {
+    return await marcaFalha(
+      db,
+      o.messageId,
+      "Este contato não tem conversa aberta no WhatsApp oficial. Fora da janela de 24h só é possível iniciar com um template aprovado.",
+    );
+  }
+
+  let attachmentUrl: string | undefined;
+  if (o.type !== "text") {
+    const { data: row } = await db.from("messages").select("media_url").eq("id", o.messageId).maybeSingle();
+    attachmentUrl = (await urlTemporaria(db, row?.media_url)) ?? undefined;
+    if (!attachmentUrl) return await marcaFalha(db, o.messageId, "Não foi possível preparar o arquivo para envio.");
+  }
+
+  const isOgg = /\.(ogg|opus)$/i.test(o.fileName);
+  const result = await zernioSend({
+    accountId: o.accountId,
+    conversationId: zernioConversation,
+    text: o.text || undefined,
+    attachmentUrl,
+    attachmentType: o.type === "text" ? undefined : attachmentTypeFor(o.type),
+    attachmentName: o.type === "document" ? o.fileName : undefined,
+    voiceNote: o.type === "audio" && isOgg,
+  });
+
+  if (!result.ok) {
+    let erro = result.error ?? "falha no envio";
+    if (o.type === "audio" && /webm/i.test(o.fileName + erro)) {
+      erro = `O WhatsApp oficial não aceita áudio WebM (gravação do navegador). ${erro}`;
+    }
+    return await marcaFalha(db, o.messageId, erro);
+  }
+
+  const providerId = sentMessageId(result.data);
+  await db
+    .from("messages")
+    .update({ delivery_status: "sent", provider_message_id: providerId })
+    .eq("id", o.messageId);
+  return json({ ok: true, sent: true, messageId: o.messageId, providerMessageId: providerId, type: o.type });
 }
 
 Deno.serve(async (req) => {
@@ -140,10 +224,23 @@ Deno.serve(async (req) => {
 
   const { data: connRow } = await db
     .from("whatsapp_connections")
-    .select("instance_name, base_url, status, api_key")
+    .select("instance_name, base_url, status, api_key, provider, zernio_account_id")
     .eq("organization_id", conv.organization_id)
     .eq("id", conv.connection_id)
     .maybeSingle();
+
+  // WhatsApp oficial pelo Zernio: envio por conversa, mídia por link temporário.
+  if ((connRow as any)?.provider === "zernio") {
+    return await enviaPeloZernio(db, {
+      messageId: msg.id,
+      conversationId,
+      accountId: (connRow as any).zernio_account_id ?? "",
+      phone: (conv as any).contact?.phone ?? "",
+      type,
+      text: textContent,
+      fileName,
+    });
+  }
 
   const baseUrl = (connRow?.base_url || EVOLUTION_BASE_URL || "").replace(
     /\/+$/,
