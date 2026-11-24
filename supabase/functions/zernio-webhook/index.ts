@@ -23,17 +23,24 @@ function hex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function iguais(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 async function assinaturaValida(raw: string, recebida: string | null) {
   if (!WEBHOOK_SECRET || !recebida) return false;
   const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(WEBHOOK_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    "raw", new TextEncoder().encode(WEBHOOK_SECRET.trim()), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
-  const esperada = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw)));
-  const valor = recebida.replace(/^sha256=/i, "").trim().toLowerCase();
-  if (valor.length !== esperada.length) return false;
-  let diff = 0;
-  for (let i = 0; i < valor.length; i += 1) diff |= valor.charCodeAt(i) ^ esperada.charCodeAt(i);
-  return diff === 0;
+  const bruto = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
+  const emHex = hex(bruto);
+  const emBase64 = btoa(String.fromCharCode(...new Uint8Array(bruto)));
+  // aceita "abc…", "sha256=abc…" e "t=…,v1=abc…"
+  const candidatos = recebida.split(",").map((parte) => parte.trim().replace(/^(sha256|v1)=/i, ""));
+  return candidatos.some((c) => iguais(c.toLowerCase(), emHex) || iguais(c, emBase64));
 }
 
 /** Tipo do anexo na Zernio -> tipo de mensagem no CRM. */
@@ -191,7 +198,15 @@ async function processar(db: SupabaseClient, evento: Json) {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("ok");
   const raw = await req.text();
-  if (!(await assinaturaValida(raw, req.headers.get("X-Zernio-Signature")))) {
+  const assinatura = req.headers.get("X-Zernio-Signature");
+  if (!(await assinaturaValida(raw, assinatura))) {
+    // diagnóstico sem expor segredo: só formato e tamanhos
+    console.warn("zernio-webhook assinatura recusada", {
+      temSegredo: WEBHOOK_SECRET.length > 0,
+      tamanhoSegredo: WEBHOOK_SECRET.trim().length,
+      formato: assinatura ? assinatura.replace(/[0-9a-f]/gi, "x").slice(0, 24) : null,
+      tamanhoAssinatura: assinatura?.length ?? 0,
+    });
     return new Response(JSON.stringify({ error: "assinatura invalida" }), { status: 401 });
   }
   let evento: Json;
