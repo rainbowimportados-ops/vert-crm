@@ -27,7 +27,7 @@ async function resolveProfile(orgId: string, role: string, userId: string) {
       .maybeSingle(),
     supabase
       .from("whatsapp_connections")
-      .select("id, display_name, phone_number, instance_name, status, is_default, sector")
+      .select("id, display_name, phone_number, instance_name, status, is_default, sector, provider, channel")
       .eq("organization_id", orgId)
       .eq("is_active", true)
       .order("is_default", { ascending: false })
@@ -59,6 +59,8 @@ async function resolveProfile(orgId: string, role: string, userId: string) {
       status: connection.status ?? "disconnected",
       isDefault: !!connection.is_default,
       sector: connection.sector ?? null,
+      provider: connection.provider ?? null,
+      channel: connection.channel ?? "whatsapp",
     })),
   };
 }

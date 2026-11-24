@@ -20,6 +20,10 @@ O CRM usa o Supabase do Instituto Vert (`xiskevunqbvmoclygppc`). Desde 30/10/202
 - **Funil** (tela Leads): Novo → Em contato → Negociação → Ganho / Perdido. As etapas usam os valores de `crm_leads.status` (`novo`, `em_atendimento`, `aguardando`, `finalizado`, `perdido`); nomes em `src/crm/sdk/funil.ts`.
 - Na conversa, o seletor "Funil" muda a etapa ou transforma o contato em lead.
 
+## Ativar pacientes
+
+Menu com as conversas que pedem retorno, em quatro gavetas (Responder hoje, Sem resposta 4+ dias, Follow-up, Manutenção), montadas por `crm_ativacao_lista` a partir de quem falou por último. Na ficha, o Claude (`claude-opus-5-5`, edge function `crm-ativacao`) sugere caminhos e escreve a mensagem seguindo roteiros editáveis; o envio passa pelo `crm-send-message` só depois de confirmado. Nas conexões da Zernio a ficha mostra a janela de 24 h do WhatsApp oficial. Precisa do segredo `ANTHROPIC_API_KEY` nas edge functions. Orçamentos do Santé ainda não entram.
+
 Detalhes, edge functions e segredos em `supabase/MIGRACAO.md`.
 
 ## Rodar

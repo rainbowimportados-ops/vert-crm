@@ -37,6 +37,9 @@ const ContactsPanel = lazy(() =>
 const LeadsPanel = lazy(() =>
   import("../leads/LeadsPanel").then((m) => ({ default: m.LeadsPanel })),
 );
+const AtivacaoPanel = lazy(() =>
+  import("../ativacao/AtivacaoPanel").then((m) => ({ default: m.AtivacaoPanel })),
+);
 const TeamPanel = lazy(() =>
   import("../team/TeamPanel").then((m) => ({ default: m.TeamPanel })),
 );
@@ -55,7 +58,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
   const allowedNav = useMemo(
     () =>
       CRM_NAV.filter((item) =>
-        item.id === "conversations"
+        item.module === "conversations"
           ? manifest.modules.inbox || manifest.modules.conversations
           : manifest.modules[item.module],
       ).filter((item) => canAccessCrmNav(item, role, permissions)),
@@ -157,6 +160,12 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Suspense fallback={<SkeletonPage />}>
               <ContactsPanel onOpen={openConversation} />
+            </Suspense>
+          </div>
+        ) : active.section === "ativacao" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Suspense fallback={<SkeletonPage />}>
+              <AtivacaoPanel onOpen={openConversation} />
             </Suspense>
           </div>
         ) : active.section === "leads" ? (
