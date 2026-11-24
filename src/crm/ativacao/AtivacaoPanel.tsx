@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Loader2, MessageSquare, Search, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -7,16 +8,21 @@ import { useMessages } from "../services/conversations";
 import { useSendMessage } from "../services/sendMessage";
 import {
   GAVETAS,
+  RESUMOS_POR_PEDIDO,
   escreverMensagem,
   estaResolvida,
+  etiquetasDe,
   gavetaDe,
   janela24h,
+  resumirFichas,
+  resumoEmDia,
   sugerirCaminhos,
   tempoDeEspera,
   useAtivacaoLista,
   useMarcarResolvida,
   type FichaAtivacao,
   type Gaveta,
+  type Etiqueta,
   type Sugestao,
   type TipoMensagem,
 } from "../services/ativacao";
@@ -82,7 +88,10 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
       if (!g) return;
       if (ocultar && estaResolvida(f)) return;
       if (q) {
-        const alvo = `${f.nome ?? ""} ${f.instagram ?? ""} ${f.ultimoTexto}`.toLowerCase();
+        const alvo = [
+          f.nome, f.instagram, f.ultimoTexto, f.resumo?.resumo, f.resumo?.proximo,
+          etiquetasDe(f).map((e) => e.texto).join(" "),
+        ].join(" ").toLowerCase();
         if (!alvo.includes(q) && !(digitos && (f.telefone ?? "").includes(digitos))) return;
       }
       out[g].push(f);
@@ -103,6 +112,45 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
   }, [fichas, aberta]);
 
   const oficial = activeConnection?.provider === "zernio" && (activeConnection?.channel ?? "whatsapp") === "whatsapp";
+
+  // Resumos do Claude: a gaveta "Responder hoje" se resume sozinha; as outras
+  // têm um botão. Cada conversa é pedida no máximo uma vez por abertura da tela,
+  // e a edge function só gasta com quem recebeu mensagem depois do último resumo.
+  const qc = useQueryClient();
+  const pedidos = useRef(new Set<string>());
+  const [resumindo, setResumindo] = useState<Gaveta | null>(null);
+  const [avisoResumo, setAvisoResumo] = useState<string | null>(null);
+  const semResumo = (g: Gaveta) =>
+    porGaveta[g].filter((f) => !estaResolvida(f) && !resumoEmDia(f) && !pedidos.current.has(f.conversationId));
+
+  const resumir = async (g: Gaveta, automatico = false) => {
+    const alvo = semResumo(g).slice(0, RESUMOS_POR_PEDIDO);
+    if (!alvo.length || resumindo) return;
+    alvo.forEach((f) => pedidos.current.add(f.conversationId));
+    setResumindo(g);
+    setAvisoResumo(null);
+    try {
+      const r = await resumirFichas(alvo.map((f) => f.conversationId));
+      if (r.aviso) setAvisoResumo(r.aviso);
+      await qc.invalidateQueries({ queryKey: ["crm-ativacao", activeConnectionId] });
+    } catch (e) {
+      // automático: falha silenciosa no cartão, aviso discreto no topo
+      setAvisoResumo(e instanceof Error ? e.message : "Os resumos não vieram agora.");
+      if (!automatico) alvo.forEach((f) => pedidos.current.delete(f.conversationId));
+    } finally {
+      setResumindo(null);
+    }
+  };
+
+  const pendentesHoje = isLoading ? 0 : semResumo("hoje").length;
+  useEffect(() => {
+    if (pendentesHoje > 0 && !resumindo && !busca) void resumir("hoje", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendentesHoje, resumindo, busca]);
+
+  useEffect(() => {
+    pedidos.current.clear();
+  }, [activeConnectionId]);
 
   return (
     <div className="w-full space-y-4 p-5 lg:p-8">
@@ -137,6 +185,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
             Ocultar resolvidos
           </label>
         </div>
+        {avisoResumo && <p className="text-xs text-destructive">Resumos do Claude: {avisoResumo}</p>}
         <div className="flex gap-2 overflow-x-auto md:hidden">
           {GAVETAS.map((g) => (
             <button
@@ -163,13 +212,25 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
           {GAVETAS.map((g) => (
             <section key={g.id} className={cn(g.id === gavetaMobile ? "block" : "hidden md:block")}>
               <h2 className="text-base font-semibold">{g.titulo}</h2>
-              <p className="mb-3 text-xs text-muted-foreground">{g.sub} · {porGaveta[g.id].length}</p>
+              <p className="mb-2 text-xs text-muted-foreground">{g.sub} · {porGaveta[g.id].length}</p>
+              <BotaoResumir
+                pendentes={semResumo(g.id).length}
+                ocupado={resumindo === g.id}
+                automatico={g.id === "hoje"}
+                onClick={() => void resumir(g.id)}
+              />
               <div className="space-y-2">
                 {porGaveta[g.id].length === 0 ? (
                   <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">Nada aqui.</p>
                 ) : (
                   porGaveta[g.id].slice(0, 80).map((f) => (
-                    <FichaCard key={f.conversationId} ficha={f} gaveta={g.id} onAbrir={() => setAberta(f)} />
+                    <FichaCard
+                      key={f.conversationId}
+                      ficha={f}
+                      gaveta={g.id}
+                      resumindo={resumindo === g.id && !resumoEmDia(f) && pedidos.current.has(f.conversationId)}
+                      onAbrir={() => setAberta(f)}
+                    />
                   ))
                 )}
                 {porGaveta[g.id].length > 80 && (
@@ -194,9 +255,60 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
   );
 }
 
-function FichaCard({ ficha: f, gaveta, onAbrir }: { ficha: FichaAtivacao; gaveta: Gaveta; onAbrir: () => void }) {
+function BotaoResumir({
+  pendentes,
+  ocupado,
+  automatico,
+  onClick,
+}: {
+  pendentes: number;
+  ocupado: boolean;
+  automatico: boolean;
+  onClick: () => void;
+}) {
+  if (ocupado)
+    return (
+      <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> Claude resumindo os cartões…
+      </p>
+    );
+  if (!pendentes) return <div className="mb-3" />;
+  return (
+    <button
+      onClick={onClick}
+      className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:border-primary hover:text-foreground"
+    >
+      <Sparkles className="h-3.5 w-3.5 text-primary" />
+      {automatico ? "Resumir os que faltam" : "Resumir com Claude"} ({Math.min(pendentes, RESUMOS_POR_PEDIDO)}
+      {pendentes > RESUMOS_POR_PEDIDO ? ` de ${pendentes}` : ""})
+    </button>
+  );
+}
+
+const TOM_ETIQUETA: Record<Etiqueta["tom"], string> = {
+  risco: "border-destructive/60 text-destructive",
+  bom: "border-success/60 text-success",
+  valor: "border-primary/60 font-semibold text-foreground",
+  neutro: "border-border text-muted-foreground",
+};
+
+function FichaCard({
+  ficha: f,
+  gaveta,
+  resumindo,
+  onAbrir,
+}: {
+  ficha: FichaAtivacao;
+  gaveta: Gaveta;
+  resumindo: boolean;
+  onAbrir: () => void;
+}) {
   const resolvida = estaResolvida(f);
   const urgente = gaveta === "parado" || (gaveta === "hoje" && Date.now() - new Date(f.ultimaMsgEm).getTime() > 12 * 3600_000);
+  const etiquetas = etiquetasDe(f);
+  // resumo antigo ainda ajuda; o cartão avisa que chegou mensagem depois dele
+  const resumo = f.resumo;
+  const desatualizado = !!resumo && !resumoEmDia(f);
   return (
     <article className={cn("rounded-xl border border-border bg-card p-3", resolvida && "opacity-50")}>
       <div className="flex items-start justify-between gap-2">
@@ -211,10 +323,34 @@ function FichaCard({ ficha: f, gaveta, onAbrir }: { ficha: FichaAtivacao; gaveta
           <span className="text-[10px] text-muted-foreground">{f.ultimaDirecao === "in" ? "esperando" : "sem resposta"}</span>
         </div>
       </div>
-      <p className="mt-2 line-clamp-3 text-xs text-foreground/80">
-        <span className="text-muted-foreground">{f.ultimaDirecao === "in" ? "Paciente: " : "Clínica: "}</span>
-        {f.ultimoTexto || "(mídia)"}
-      </p>
+      {resumo ? (
+        <>
+          <p className="mt-2 text-xs text-foreground/85">{resumo.resumo}</p>
+          {resumo.proximo && (
+            <p className="mt-1.5 rounded-md bg-muted px-2 py-1 text-xs font-medium">{resumo.proximo}</p>
+          )}
+          {desatualizado && (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {resumindo ? "Atualizando com a mensagem nova…" : "Chegou mensagem depois deste resumo."}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="mt-2 line-clamp-3 text-xs text-foreground/80">
+          <span className="text-muted-foreground">{f.ultimaDirecao === "in" ? "Paciente: " : "Clínica: "}</span>
+          {f.ultimoTexto || "(mídia)"}
+          {resumindo && <span className="mt-1 block text-[10px] text-muted-foreground">Claude resumindo…</span>}
+        </p>
+      )}
+      {etiquetas.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {etiquetas.map((e) => (
+            <span key={e.texto} className={cn("rounded-full border px-2 py-0.5 text-[10px] leading-4", TOM_ETIQUETA[e.tom])}>
+              {e.texto}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="mt-2 flex items-center gap-2">
         <button onClick={onAbrir} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium hover:border-primary">
           <Sparkles className="h-3.5 w-3.5 text-primary" /> Abrir ficha

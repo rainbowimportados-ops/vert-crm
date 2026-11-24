@@ -13,6 +13,7 @@ O CRM usa o Supabase do Instituto Vert (`xiskevunqbvmoclygppc`). Desde 30/10/202
 | `20261030120000_schema_do_crm.sql` | Recria o banco do CRM do zero num projeto novo. Não rodar no banco atual. |
 | `20261030150000_remove_tabelas_da_clinica.sql` | Tira as tabelas da clínica do banco atual. Só depois do backup conferido. |
 | `20261124120000_leads_do_site_no_whatsapp.sql` | Leads da landing page e do cartão digital entram no WhatsApp padrão com conversa aberta. Corrige os que já entraram. |
+| `20261124230000_ativacao_resumos.sql` | Resumo, próximo passo e etiquetas dos cartões de "Ativar pacientes" (`crm_ativacao_resumos`). |
 
 ## Vendas
 
@@ -22,7 +23,9 @@ O CRM usa o Supabase do Instituto Vert (`xiskevunqbvmoclygppc`). Desde 30/10/202
 
 ## Ativar pacientes
 
-Menu com as conversas que pedem retorno, em quatro gavetas (Responder hoje, Sem resposta 4+ dias, Follow-up, Manutenção), montadas por `crm_ativacao_lista` a partir de quem falou por último. Na ficha, o Claude (`claude-opus-5-5`, edge function `crm-ativacao`) sugere caminhos e escreve a mensagem seguindo roteiros editáveis; o envio passa pelo `crm-send-message` só depois de confirmado. Nas conexões da Zernio a ficha mostra a janela de 24 h do WhatsApp oficial. Precisa do segredo `ANTHROPIC_API_KEY` nas edge functions. Orçamentos do Santé ainda não entram.
+Menu com as conversas que pedem retorno, em quatro gavetas (Responder hoje, Sem resposta 4+ dias, Follow-up, Manutenção), montadas por `crm_ativacao_lista` a partir de quem falou por último. Na ficha, o Claude (`claude-opus-5-5`, edge function `crm-ativacao`) sugere caminhos e escreve a mensagem seguindo roteiros editáveis; o envio passa pelo `crm-send-message` só depois de confirmado. Nas conexões da Zernio a ficha mostra a janela de 24 h do WhatsApp oficial.
+
+Cada cartão mostra um resumo de 1 ou 2 frases, o próximo passo e etiquetas. O resumo é escrito pelo Claude e guardado em `crm_ativacao_resumos`; só é refeito quando chega mensagem nova. A gaveta "Responder hoje" se resume sozinha ao abrir a tela; as outras têm o botão "Resumir com Claude" (12 cartões por vez). Parte das etiquetas vem do próprio CRM, sem custo: lead/cliente (pelo funil), "ouvir áudio" (áudio do paciente sem resposta) e risco de perda ou de reclamação (pelo texto do paciente). Precisa do segredo `ANTHROPIC_API_KEY` nas edge functions. Orçamentos do Santé ainda não entram.
 
 Detalhes, edge functions e segredos em `supabase/MIGRACAO.md`.
 
