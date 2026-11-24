@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
-  MessageCircle,
-  CalendarPlus,
+  ArrowLeft,
+  CalendarDays,
+  Check,
   DollarSign,
-  Sparkles,
-  Tag as TagIcon,
+  History,
   Loader2,
+  MessageCircle,
+  MoreVertical,
+  Paperclip,
+  Sparkles,
+  StickyNote,
+  Tag as TagIcon,
+  UserRound,
+  X,
+  type LucideIcon,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ContactHeader } from "./ContactHeader";
 import { AtendimentoBar } from "./AtendimentoBar";
 import { TagPopover } from "./TagPopover";
@@ -36,12 +46,12 @@ import { useCrmContext } from "../provider/CrmProvider";
 import type { CrmConversation, CrmMessage } from "../sdk/types";
 
 type Tab = "conversa" | "dados" | "historico" | "notas" | "arquivos";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "conversa", label: "Conversa" },
-  { key: "dados", label: "Dados" },
-  { key: "historico", label: "Histórico" },
-  { key: "notas", label: "Notas" },
-  { key: "arquivos", label: "Arquivos" },
+const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
+  { key: "conversa", label: "Conversa", icon: MessageCircle },
+  { key: "dados", label: "Dados", icon: UserRound },
+  { key: "historico", label: "Histórico", icon: History },
+  { key: "notas", label: "Notas", icon: StickyNote },
+  { key: "arquivos", label: "Arquivos", icon: Paperclip },
 ];
 
 const money = (v: number | null | undefined) =>
@@ -74,6 +84,7 @@ export function ConversationPanel({ conversation, onBack }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [valuesOpen, setValuesOpen] = useState(false);
   const [tagOpen, setTagOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [insert, setInsert] = useState<{ text: string; nonce: number } | null>(
     null,
   );
@@ -240,62 +251,129 @@ export function ConversationPanel({ conversation, onBack }: Props) {
     setValuesOpen(false);
   };
 
+  const abrirAba = (t: Tab) => {
+    setTab(t);
+    setMoreOpen(false);
+    setTagOpen(false);
+    setValuesOpen(false);
+  };
+
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-background">
-      <ContactHeader conversation={conversation} onBack={onBack} />
+      <ContactHeader
+        conversation={conversation}
+        onBack={onBack}
+        actions={
+          <>
+            <RoundAction
+              className="hidden sm:flex"
+              icon={TagIcon}
+              label="Etiquetas"
+              active={tagOpen}
+              onClick={() => {
+                setTab("conversa");
+                setValuesOpen(false);
+                setTagOpen((v) => !v);
+              }}
+            />
+            <RoundAction
+              className="hidden sm:flex"
+              icon={UserRound}
+              label="Dados do contato"
+              active={tab === "dados"}
+              onClick={() => abrirAba(tab === "dados" ? "conversa" : "dados")}
+            />
+            {integ.agenda && (
+              <RoundAction className="hidden sm:flex" icon={CalendarDays} label="Agendar" onClick={() => setScheduleOpen(true)} />
+            )}
+          </>
+        }
+        menu={
+          <>
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <span>
+                  <RoundAction icon={MoreVertical} label="Mais opções" active={moreOpen || (tab !== "conversa" && tab !== "dados")} />
+                </span>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-1">
+                <div className="sm:hidden">
+                  <MenuRow
+                    icon={TagIcon}
+                    label="Etiquetas"
+                    onClick={() => {
+                      abrirAba("conversa");
+                      setTagOpen(true);
+                    }}
+                  />
+                  {integ.agenda && (
+                    <MenuRow
+                      icon={CalendarDays}
+                      label="Agendar"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setScheduleOpen(true);
+                      }}
+                    />
+                  )}
+                </div>
+                {TABS.filter((t) => t.key !== "conversa").map((t) => (
+                  <MenuRow key={t.key} icon={t.icon} label={t.label} selected={tab === t.key} onClick={() => abrirAba(t.key)} />
+                ))}
+                {integ.procedures && (
+                  <MenuRow
+                    icon={DollarSign}
+                    label="Valores dos procedimentos"
+                    onClick={() => {
+                      abrirAba("conversa");
+                      setValuesOpen(true);
+                    }}
+                  />
+                )}
+                {manifest.modules.aiAssistant && !isDemoMode() && (
+                  <MenuRow
+                    icon={Sparkles}
+                    label="Assistente IA"
+                    selected={aiOpen}
+                    onClick={() => {
+                      abrirAba("conversa");
+                      setAiOpen((v) => !v);
+                    }}
+                  />
+                )}
+              </PopoverContent>
+            </Popover>
+          </>
+        }
+      />
       {!isDemoMode() && <AtendimentoBar conversation={conversation} />}
 
-      <div className="flex gap-1 border-b border-border bg-card px-3">
-        {TABS.map((t) => (
+      {tab !== "conversa" && (
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-card px-3 py-2">
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "relative px-3 py-2.5 text-sm transition-colors",
-              tab === t.key
-                ? "font-medium text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
+            onClick={() => abrirAba("conversa")}
+            className="inline-flex flex-none items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            {t.label}
-            {tab === t.key && (
-              <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary" />
-            )}
+            <ArrowLeft className="h-3.5 w-3.5" /> Conversa
           </button>
-        ))}
-      </div>
+          {TABS.filter((t) => t.key !== "conversa").map((t) => (
+            <button
+              key={t.key}
+              onClick={() => abrirAba(t.key)}
+              className={cn(
+                "flex-none rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                tab === t.key ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "conversa" && (
         <>
-          <div className="relative flex flex-wrap gap-1.5 border-b border-border bg-muted/30 px-4 py-2">
-            {integ.agenda && (
-              <QuickAction
-                icon={CalendarPlus}
-                label="Agendar"
-                onClick={() => setScheduleOpen(true)}
-              />
-            )}
-            {integ.procedures && (
-              <QuickAction
-                icon={DollarSign}
-                label="Valores"
-                onClick={() => setValuesOpen((v) => !v)}
-              />
-            )}
-            <QuickAction
-              icon={TagIcon}
-              label="Etiqueta"
-              onClick={() => setTagOpen((v) => !v)}
-            />
-            {manifest.modules.aiAssistant && !isDemoMode() && (
-              <QuickAction
-                icon={Sparkles}
-                label="IA"
-                primary
-                onClick={() => setAiOpen((v) => !v)}
-              />
-            )}
-
+          <div className="relative">
             {tagOpen && !isDemoMode() && (
               <TagPopover
                 contactId={conversation.contact.id}
@@ -304,7 +382,13 @@ export function ConversationPanel({ conversation, onBack }: Props) {
             )}
 
             {valuesOpen && (
-              <div className="absolute left-4 top-12 z-20 max-h-72 w-72 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-elevation-lg">
+              <div className="absolute right-4 top-2 z-20 max-h-72 w-72 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-elevation-lg">
+                <div className="flex items-center justify-between px-3 py-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Valores</span>
+                  <button onClick={() => setValuesOpen(false)} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Fechar">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
                 {(procedures ?? []).length === 0 ? (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     Nenhum procedimento cadastrado.
@@ -698,29 +782,59 @@ export function ConversationPanel({ conversation, onBack }: Props) {
   );
 }
 
-function QuickAction({
+/** Botão redondo do cabeçalho da conversa. */
+function RoundAction({
   icon: Icon,
   label,
-  primary,
+  active,
+  onClick,
+  className,
+}: {
+  icon: LucideIcon;
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "flex h-10 w-10 flex-none items-center justify-center rounded-2xl border shadow-elevation-sm transition-colors sm:h-11 sm:w-11",
+        active
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-border bg-card text-foreground/80 hover:border-primary/40 hover:text-foreground",
+        className,
+      )}
+    >
+      <Icon className="h-5 w-5" strokeWidth={1.75} />
+    </button>
+  );
+}
+
+function MenuRow({
+  icon: Icon,
+  label,
+  selected,
   onClick,
 }: {
-  icon: typeof CalendarPlus;
+  icon: LucideIcon;
   label: string;
-  primary?: boolean;
-  onClick?: () => void;
+  selected?: boolean;
+  onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
-        primary
-          ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-          : "border-border bg-card text-muted-foreground hover:text-foreground",
-      )}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-foreground hover:bg-muted"
     >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
+      <Icon className="h-4 w-4 text-muted-foreground" />
+      <span className="flex-1">{label}</span>
+      {selected && <Check className="h-3.5 w-3.5 text-primary" />}
     </button>
   );
 }

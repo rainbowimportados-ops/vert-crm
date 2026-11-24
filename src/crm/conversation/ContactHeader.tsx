@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Phone, MapPin, MessageCircle, Pencil, Check, X, Loader2, Bot } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, MapPin, Pencil, Check, X, Loader2, Bot } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -11,9 +11,13 @@ import { displayName, initialsOf, isUsableName, maskPhone } from "../sdk/phone";
 interface Props {
   conversation: CrmConversation;
   onBack?: () => void;
+  /** Botões redondos do lado direito (etiquetas, dados, agenda). */
+  actions?: ReactNode;
+  /** Último botão da fila, depois do agente de IA (o menu "mais"). */
+  menu?: ReactNode;
 }
 
-export function ContactHeader({ conversation: c, onBack }: Props) {
+export function ContactHeader({ conversation: c, onBack, actions, menu }: Props) {
   const { toast } = useToast();
   const rename = useRenameContact();
   const { setAiMode } = useUpdateConversation();
@@ -59,22 +63,23 @@ export function ContactHeader({ conversation: c, onBack }: Props) {
       toast({ title: "Não foi possível renomear", description: e?.message, variant: "destructive" });
     } finally { setSaving(false); }
   };
+  const canal = c.connectionName ? `via ${c.connectionName}` : "WhatsApp";
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-3 sm:gap-3 sm:px-4">
+    <div className="flex items-center gap-3 border-b border-border bg-card px-3 py-3 sm:gap-4 sm:px-6 sm:py-4">
       {onBack && (
         <button onClick={onBack} className="rounded-xl p-1.5 text-muted-foreground hover:bg-muted md:hidden" aria-label="Voltar">
           <ArrowLeft className="h-5 w-5" />
         </button>
       )}
       {c.contact.avatarUrl ? (
-        <img src={c.contact.avatarUrl} alt={title} className="h-11 w-11 rounded-full object-cover" loading="lazy" decoding="async" />
+        <img src={c.contact.avatarUrl} alt={title} className="h-12 w-12 flex-none rounded-full object-cover sm:h-14 sm:w-14" loading="lazy" decoding="async" />
       ) : (
-        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+        <div className="flex h-12 w-12 flex-none items-center justify-center rounded-full bg-primary/10 text-base font-semibold text-primary sm:h-14 sm:w-14">
           {initials}
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="group flex items-center gap-2">
           {editing ? (
             <span className="flex items-center gap-1">
               <input
@@ -94,81 +99,81 @@ export function ContactHeader({ conversation: c, onBack }: Props) {
             </span>
           ) : (
             <>
-              <span className="min-w-0 flex-1 truncate text-base font-bold tracking-tight text-foreground">{title}</span>
+              <span className="min-w-0 truncate text-lg font-semibold tracking-tight text-foreground sm:text-[22px]">{title}</span>
               <button
                 onClick={startEdit}
                 title="Renomear contato"
-                className="flex-shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex-shrink-0 rounded-lg p-1 text-muted-foreground opacity-60 transition hover:bg-muted hover:text-foreground hover:opacity-100 group-hover:opacity-100"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
             </>
           )}
           {c.isPatient && (
-            <span className="hidden flex-shrink-0 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success sm:inline">Paciente</span>
+            <span className="hidden flex-shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success sm:inline">Paciente</span>
           )}
           {/* Etiquetas reais do WhatsApp */}
-          {(c.tags ?? []).map((t) => (
+          {(c.tags ?? []).slice(0, 3).map((t) => (
             <span
               key={t.id}
               style={{ backgroundColor: `${t.color ?? "#94A3B8"}26`, color: t.color ?? undefined }}
-              className="hidden flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium sm:inline"
+              className="hidden flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium lg:inline"
             >
               {t.label}
             </span>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1 whitespace-nowrap"><Phone className="h-3 w-3" />{maskPhone(c.contact.phone) || c.contact.phone}</span>
-          {c.connectionName && (
-            <span className="inline-flex items-center gap-1 whitespace-nowrap text-success">
-              <MessageCircle className="h-3 w-3" /> via {c.connectionName}
-              {c.connectionPhone ? ` · ${maskPhone(c.connectionPhone) || c.connectionPhone}` : ""}
-            </span>
-          )}
-          {c.contact.city && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{c.contact.city}</span>}
-          {c.assigneeName && <span>· {c.assigneeName}</span>}
+        <div className="mt-0.5 flex items-center gap-x-3 overflow-hidden whitespace-nowrap text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <span className="h-2 w-2 rounded-full bg-success" aria-hidden />
+            {maskPhone(c.contact.phone) || c.contact.phone}
+          </span>
+          <span className="hidden whitespace-nowrap sm:inline">{canal}</span>
+          {c.contact.city && <span className="hidden items-center gap-1 sm:inline-flex"><MapPin className="h-3.5 w-3.5" />{c.contact.city}</span>}
+          {c.assigneeName && <span className="hidden truncate xl:inline">· {c.assigneeName}</span>}
         </div>
       </div>
-      {/* Agente de IA nesta conversa */}
-      <Popover open={aiOpen} onOpenChange={setAiOpen}>
-        <PopoverTrigger asChild>
-          <button
-            title="Agente de IA nesta conversa"
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              aiMode === "on" ? "bg-primary text-primary-foreground"
-                : aiMode === "off" ? "bg-muted text-muted-foreground"
-                : "bg-primary/10 text-primary",
-            )}
-          >
-            <Bot className="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-64 p-1">
-          <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">IA nesta conversa</p>
-          {([
-            { k: "default" as const, t: "Seguir o padrão geral", d: "Obedece ao interruptor das Configurações." },
-            { k: "on" as const, t: "Ativar aqui", d: "A IA age nesta conversa mesmo com o geral desligado." },
-            { k: "off" as const, t: "Pausar aqui", d: "A IA não mexe nesta conversa." },
-          ]).map((o) => (
+      <div className="flex flex-none items-center gap-2">
+        {actions}
+        {/* Agente de IA nesta conversa */}
+        <Popover open={aiOpen} onOpenChange={setAiOpen}>
+          <PopoverTrigger asChild>
             <button
-              key={o.k}
-              onClick={() => void changeAiMode(o.k)}
-              className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+              title="Agente de IA nesta conversa"
+              aria-label="Agente de IA nesta conversa"
+              className={cn(
+                "hidden h-11 w-11 items-center justify-center rounded-2xl border shadow-elevation-sm transition-colors sm:flex",
+                aiMode === "on" ? "border-primary bg-primary text-primary-foreground"
+                  : aiMode === "off" ? "border-border bg-muted text-muted-foreground"
+                  : "border-border bg-card text-primary hover:border-primary/40",
+              )}
             >
-              {aiMode === o.k ? <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary" /> : <span className="w-3.5 flex-shrink-0" />}
-              <span>
-                <span className="block text-sm text-foreground">{o.t}</span>
-                <span className="block text-[11px] text-muted-foreground">{o.d}</span>
-              </span>
+              <Bot className="h-5 w-5" strokeWidth={1.75} />
             </button>
-          ))}
-        </PopoverContent>
-      </Popover>
-      <span className="hidden h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success sm:flex" title="WhatsApp">
-        <MessageCircle className="h-4 w-4" />
-      </span>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-1">
+            <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">IA nesta conversa</p>
+            {([
+              { k: "default" as const, t: "Seguir o padrão geral", d: "Obedece ao interruptor das Configurações." },
+              { k: "on" as const, t: "Ativar aqui", d: "A IA age nesta conversa mesmo com o geral desligado." },
+              { k: "off" as const, t: "Pausar aqui", d: "A IA não mexe nesta conversa." },
+            ]).map((o) => (
+              <button
+                key={o.k}
+                onClick={() => void changeAiMode(o.k)}
+                className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+              >
+                {aiMode === o.k ? <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary" /> : <span className="w-3.5 flex-shrink-0" />}
+                <span>
+                  <span className="block text-sm text-foreground">{o.t}</span>
+                  <span className="block text-[11px] text-muted-foreground">{o.d}</span>
+                </span>
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
+        {menu}
+      </div>
     </div>
   );
 }
