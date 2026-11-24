@@ -12,8 +12,12 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WEBHOOK_SECRET = Deno.env.get("ZERNIO_WEBHOOK_SECRET") ?? "";
-const ZERNIO_API_KEY = Deno.env.get("ZERNIO_API_KEY") ?? "";
+// Tolera o valor colado com aspas, espaços ou quebra de linha no painel: o
+// segredo da Zernio é hex de 64 caracteres; se estiver no meio de sobras, usa só ele.
+const SEGREDO_BRUTO = (Deno.env.get("ZERNIO_WEBHOOK_SECRET") ?? "").trim();
+const WEBHOOK_SECRET =
+  SEGREDO_BRUTO.match(/[0-9a-f]{64}/i)?.[0] ?? SEGREDO_BRUTO.replace(/^["'`]+|["'`]+$/g, "").trim();
+const ZERNIO_API_KEY = (Deno.env.get("ZERNIO_API_KEY") ?? "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -204,6 +208,7 @@ Deno.serve(async (req) => {
     console.warn("zernio-webhook assinatura recusada", {
       temSegredo: WEBHOOK_SECRET.length > 0,
       tamanhoSegredo: WEBHOOK_SECRET.trim().length,
+      tamanhoBruto: SEGREDO_BRUTO.length,
       formato: assinatura ? assinatura.replace(/[0-9a-f]/gi, "x").slice(0, 24) : null,
       tamanhoAssinatura: assinatura?.length ?? 0,
     });
