@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
-import { Flame, MapPin, MessageCircle } from "lucide-react";
+import { Flame, Globe, MapPin, MessageCircle } from "lucide-react";
 import type { CrmConversation } from "../sdk/types";
+import { nomeDaEtapa, nomeDaOrigem } from "../sdk/funil";
 import { displayName, initialsOf } from "../sdk/phone";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -64,6 +65,16 @@ export function ConversationCard({ conversation: c, selected, onClick }: Props) 
           <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", STATUS_STYLE[c.status])}>
             {STATUS_LABEL[c.status]}
           </span>
+          {c.leadStage && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              {nomeDaEtapa(c.leadStage)}
+            </span>
+          )}
+          {c.leadOrigin && c.leadOrigin !== "whatsapp" && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              <Globe className="h-2.5 w-2.5" />{nomeDaOrigem(c.leadOrigin)}
+            </span>
+          )}
           {c.isPatient && (
             <span className="rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success">Paciente</span>
           )}

@@ -3,28 +3,38 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCrmContext } from "../provider/CrmProvider";
 import type { CrmConversation, CrmMessage, CrmTag, InboxFilterKey } from "../sdk/types";
+import { ETAPAS, ORIGENS, etapaDe, origemDe, type EtapaFunil, type OrigemLead } from "../sdk/funil";
 import { DEMO_CONVERSATIONS, DEMO_MESSAGES, isDemoMode } from "./demo";
 import { resolverAvatares } from "./avatars";
 
 // Camada de serviço da caixa de entrada — dados reais do Supabase (com fallback de demo via ?demo=1).
 
-export function matchesFilter(c: CrmConversation, filter: InboxFilterKey): boolean {
+export function matchesFilter(c: CrmConversation, filter: InboxFilterKey, userId?: string | null): boolean {
   switch (filter) {
     case "all": return true;
+    case "mine": return !!userId && c.assigneeId === userId;
     case "unread": return c.unread > 0;
     case "patients": return c.isPatient;
     case "in_progress": return c.status === "em_atendimento";
     case "waiting": return c.status === "aguardando";
     case "closed": return c.status === "finalizado";
-    case "unassigned": return !c.assigneeName;
+    case "unassigned": return !c.assigneeId && !c.assigneeName;
     default: return true;
   }
 }
 
-function mapRow(r: any, users?: Record<string, string>, tagsByContact?: Record<string, CrmTag[]>): CrmConversation {
+interface LeadResumo { id: string; status: string | null; source: string | null }
+
+function mapRow(
+  r: any,
+  users?: Record<string, string>,
+  tagsByContact?: Record<string, CrmTag[]>,
+  leadsByContact?: Record<string, LeadResumo>,
+): CrmConversation {
   const contact = r.contact ?? {};
   const connection = Array.isArray(r.connection) ? r.connection[0] ?? {} : r.connection ?? {};
   const contactId = contact.id ?? r.contact_id;
+  const lead = leadsByContact?.[contactId] ?? null;
   return {
     id: r.id,
     connectionId: r.connection_id ?? connection.id ?? null,
@@ -44,9 +54,13 @@ function mapRow(r: any, users?: Record<string, string>, tagsByContact?: Record<s
     lastMessage: r.last_message_preview ?? "",
     lastMessageAt: r.last_message_at ?? r.created_at,
     unread: r.unread_count ?? 0,
-    primaryTag: r.procedure?.name ?? null,
-    interest: r.procedure?.name ?? null,
+    primaryTag: null, // procedimentos ficam no sistema da clínica (ainda não conectado)
+    interest: null,
+    assigneeId: r.assignee_id ?? null,
     assigneeName: r.assignee_id ? (users?.[r.assignee_id] ?? "Responsável") : null,
+    leadId: lead?.id ?? null,
+    leadStage: lead ? etapaDe(lead.status) : null,
+    leadOrigin: origemDe(lead?.source, !!lead),
     priority: r.priority ?? null,
     isNewLead: !!r.is_new_lead,
     isPatient: !!contact.patient_id,
@@ -55,18 +69,33 @@ function mapRow(r: any, users?: Record<string, string>, tagsByContact?: Record<s
 }
 
 async function fetchConversations(orgId: string, connectionId: string): Promise<CrmConversation[]> {
-  const [{ data, error }, usersRes, tagsRes] = await Promise.all([
+  const [{ data, error }, usersRes, tagsRes, leadsRes] = await Promise.all([
     supabase
       .from("conversations")
-      .select("id, contact_id, connection_id, status, priority, is_new_lead, ai_mode, unread_count, assignee_id, last_message_preview, last_message_at, created_at, connection:whatsapp_connections(id, display_name, phone_number, instance_name), contact:crm_contacts(id, name, phone, avatar_url, city, patient_id), procedure:procedures(name)")
+      .select("id, contact_id, connection_id, status, priority, is_new_lead, ai_mode, unread_count, assignee_id, last_message_preview, last_message_at, created_at, connection:whatsapp_connections(id, display_name, phone_number, instance_name), contact:crm_contacts(id, name, phone, avatar_url, city, patient_id)")
       .eq("organization_id", orgId)
       .eq("connection_id", connectionId)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(300),
     supabase.from("profiles").select("id, full_name, email").eq("organization_id", orgId),
     supabase.from("contact_tags").select("contact_id, tag:tags(id, label, color, source)").eq("organization_id", orgId).limit(5000),
+    supabase
+      .from("crm_leads")
+      .select("id, contact_id, status, source, created_at")
+      .eq("organization_id", orgId)
+      .eq("connection_id", connectionId)
+      .order("created_at", { ascending: false })
+      .limit(5000),
   ]);
   if (error) throw error;
+
+  // contato -> lead mais recente neste número (a lista vem do mais novo para o mais antigo)
+  const leadsByContact: Record<string, LeadResumo> = {};
+  (leadsRes.data ?? []).forEach((l) => {
+    if (l.contact_id && !leadsByContact[l.contact_id]) {
+      leadsByContact[l.contact_id] = { id: l.id, status: l.status, source: l.source };
+    }
+  });
   const users: Record<string, string> = {};
   (usersRes.data ?? []).forEach((p: any) => { users[p.id] = p.full_name || p.email || "Usuário"; });
 
@@ -82,7 +111,7 @@ async function fetchConversations(orgId: string, connectionId: string): Promise<
     list.sort((a, b) => (a.source === "whatsapp" ? 0 : 1) - (b.source === "whatsapp" ? 0 : 1) || a.label.localeCompare(b.label)),
   );
 
-  const lista = (data ?? []).map((r) => mapRow(r, users, tagsByContact));
+  const lista = (data ?? []).map((r) => mapRow(r, users, tagsByContact, leadsByContact));
   // as fotos vêm como referência interna do bucket; assina todas de uma vez
   const fotos = await resolverAvatares(lista.map((c) => c.contact.avatarUrl));
   lista.forEach((c, i) => { c.contact.avatarUrl = fotos[i]; });
@@ -121,27 +150,52 @@ function useConversationList(): CrmConversation[] {
   return demo ? DEMO_CONVERSATIONS : (data ?? []);
 }
 
-export function useConversations(filter: InboxFilterKey, search: string, tagId?: string | null, connectionId?: string | null): CrmConversation[] {
+export function useConversations(
+  filter: InboxFilterKey,
+  search: string,
+  tagId?: string | null,
+  connectionId?: string | null,
+  etapa?: EtapaFunil | null,
+  origem?: OrigemLead | null,
+): CrmConversation[] {
   const base = useConversationList();
+  const { userId } = useCrmContext();
   return useMemo(() => {
     const q = search.trim().toLowerCase();
     const digits = q.replace(/\D/g, "");
     return base
-      .filter((c) => matchesFilter(c, filter))
+      .filter((c) => matchesFilter(c, filter, userId))
+      .filter((c) => !etapa || c.leadStage === etapa)
+      .filter((c) => !origem || c.leadOrigin === origem)
       .filter((c) => !connectionId || c.connectionId === connectionId)
       .filter((c) => !tagId || (c.tags ?? []).some((t) => t.id === tagId))
       .filter((c) => !q || c.contact.name.toLowerCase().includes(q) || (!!digits && c.contact.phone.includes(digits)))
       .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
-  }, [base, filter, search, tagId, connectionId]);
+  }, [base, filter, search, tagId, connectionId, etapa, origem, userId]);
 }
 
 export function useInboxCounts(): Record<InboxFilterKey, number> {
   const base = useConversationList();
+  const { userId } = useCrmContext();
   return useMemo(() => {
-    const keys: InboxFilterKey[] = ["all", "unread", "patients", "in_progress", "waiting", "closed", "unassigned"];
+    const keys: InboxFilterKey[] = ["all", "mine", "unread", "patients", "in_progress", "waiting", "closed", "unassigned"];
     const out = {} as Record<InboxFilterKey, number>;
-    keys.forEach((k) => { out[k] = base.filter((c) => matchesFilter(c, k)).length; });
+    keys.forEach((k) => { out[k] = base.filter((c) => matchesFilter(c, k, userId)).length; });
     return out;
+  }, [base, userId]);
+}
+
+/** Quantas conversas há em cada etapa do funil e em cada origem. */
+export function useFunilCounts(): { etapas: Record<EtapaFunil, number>; origens: Record<OrigemLead, number> } {
+  const base = useConversationList();
+  return useMemo(() => {
+    const etapas = Object.fromEntries(ETAPAS.map((e) => [e.key, 0])) as Record<EtapaFunil, number>;
+    const origens = Object.fromEntries(ORIGENS.map((o) => [o.key, 0])) as Record<OrigemLead, number>;
+    base.forEach((c) => {
+      if (c.leadStage) etapas[c.leadStage] += 1;
+      if (c.leadOrigin) origens[c.leadOrigin] += 1;
+    });
+    return { etapas, origens };
   }, [base]);
 }
 
