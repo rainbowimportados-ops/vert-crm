@@ -42,6 +42,98 @@ function decodeBase64(value: string) {
   return bytes;
 }
 
+// ---------- Zernio (WhatsApp oficial e Instagram) ----------
+
+const ZERNIO_API = "https://zernio.com/api/v1";
+const ZERNIO_API_KEY = Deno.env.get("ZERNIO_API_KEY") ?? "";
+
+/** Telefone do contato no formato que a Zernio espera (com DDI 55). */
+function telefoneInternacional(phone: string) {
+  const d = (phone || "").replace(/\D/g, "");
+  return d.length <= 11 ? `55${d}` : d;
+}
+
+/** Texto amigável para os erros mais comuns da API oficial. */
+function erroZernio(status: number, output: any) {
+  const code = output?.code ?? output?.error?.code ?? "";
+  const msg = output?.message ?? output?.error?.message ?? output?.error ?? "";
+  if (status === 403 || /window|24.?h/i.test(String(msg)) || String(code) === "131047") {
+    return "Fora da janela de 24 horas: o WhatsApp só aceita um modelo aprovado até o cliente responder.";
+  }
+  if (status === 402) return "Sem saldo na Zernio para enviar.";
+  return (typeof msg === "string" && msg) || `HTTP ${status}`;
+}
+
+async function enviarPelaZernio(p: {
+  db: ReturnType<typeof createClient>;
+  conv: any;
+  accountId: string;
+  channel: string;
+  messageId: string;
+  type: string;
+  textContent: string;
+  fileName: string;
+}) {
+  const { db, conv, accountId, channel, messageId, type, textContent, fileName } = p;
+  const falhar = async (erro: string) => {
+    await db.from("messages").update({ delivery_status: "failed", delivery_error: erro.slice(0, 600) }).eq("id", messageId);
+    return json({ ok: false, sent: false, messageId, error: erro }, 200);
+  };
+  if (!ZERNIO_API_KEY || !accountId) return await falhar("Conexão Zernio sem chave de API configurada.");
+
+  const body: Record<string, unknown> = { accountId };
+  if (textContent) body.message = textContent;
+
+  if (type !== "text") {
+    // a mídia já foi para o bucket crm-media; a Zernio busca por um link assinado
+    const { data: row } = await db.from("messages").select("media_url").eq("id", messageId).maybeSingle();
+    const path = String(row?.media_url ?? "").replace(/^crm-media:/, "");
+    if (!path) return await falhar("Não foi possível preparar o arquivo para envio.");
+    const { data: signed } = await db.storage.from("crm-media").createSignedUrl(path, 3600);
+    if (!signed?.signedUrl) return await falhar("Não foi possível preparar o arquivo para envio.");
+    body.attachmentUrl = signed.signedUrl;
+    body.attachmentType = type === "document" ? "file" : type;
+    if (type === "document") body.attachmentName = fileName;
+    if (type === "audio") body.voiceNote = true;
+  }
+
+  let url: string;
+  if (conv.provider_conversation_id) {
+    url = `${ZERNIO_API}/inbox/conversations/${encodeURIComponent(conv.provider_conversation_id)}/messages`;
+  } else if (channel === "whatsapp" && conv.contact?.phone) {
+    // primeira mensagem para esse contato pela API oficial
+    url = `${ZERNIO_API}/inbox/conversations`;
+    body.participantId = telefoneInternacional(conv.contact.phone);
+  } else {
+    return await falhar("No Instagram só dá para responder quem já mandou mensagem.");
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ZERNIO_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": messageId,
+      },
+      body: JSON.stringify(body),
+    });
+    const output = await response.json().catch(() => ({}));
+    if (!response.ok) return await falhar(erroZernio(response.status, output));
+
+    const data = output?.data ?? output;
+    const providerId = data?.platformMessageId ?? data?.messageId ?? data?.id ?? null;
+    await db.from("messages").update({ delivery_status: "sent", provider_message_id: providerId }).eq("id", messageId);
+    const novaConversa = data?.conversationId ?? data?.conversation?.id ?? null;
+    if (novaConversa && !conv.provider_conversation_id) {
+      await db.from("conversations").update({ provider_conversation_id: novaConversa }).eq("id", conv.id);
+    }
+    return json({ ok: true, sent: true, messageId, providerMessageId: providerId, type });
+  } catch (error) {
+    return await falhar(String(error));
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   const auth = req.headers.get("Authorization") ?? "";
@@ -85,7 +177,7 @@ Deno.serve(async (req) => {
 
   const { data: conv, error: convErr } = await userClient
     .from("conversations")
-    .select("id, organization_id, connection_id, contact:crm_contacts(phone)")
+    .select("id, organization_id, connection_id, provider_conversation_id, contact:crm_contacts(phone, instagram_id)")
     .eq("id", conversationId)
     .maybeSingle();
   if (convErr || !conv) return json({ error: "forbidden" }, 403);
@@ -140,10 +232,23 @@ Deno.serve(async (req) => {
 
   const { data: connRow } = await db
     .from("whatsapp_connections")
-    .select("instance_name, base_url, status, api_key")
+    .select("instance_name, base_url, status, api_key, provider, instance_id, channel")
     .eq("organization_id", conv.organization_id)
     .eq("id", conv.connection_id)
     .maybeSingle();
+
+  if ((connRow as any)?.provider === "zernio") {
+    return await enviarPelaZernio({
+      db,
+      conv: conv as any,
+      accountId: (connRow as any).instance_id,
+      channel: (connRow as any).channel ?? "whatsapp",
+      messageId: msg.id,
+      type,
+      textContent,
+      fileName,
+    });
+  }
 
   const baseUrl = (connRow?.base_url || EVOLUTION_BASE_URL || "").replace(
     /\/+$/,
