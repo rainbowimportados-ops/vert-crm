@@ -5,9 +5,11 @@ import { ConversationCard } from "./ConversationCard";
 import { NewConversationDialog } from "./NewConversationDialog";
 import {
   useConversations,
+  useFunilCounts,
   useInboxCounts,
   useInboxTags,
 } from "../services/conversations";
+import type { EtapaFunil, OrigemLead } from "../sdk/funil";
 import { useCrmContext } from "../provider/CrmProvider";
 import { useListaCrescente } from "@/hooks/use-lista-crescente";
 import type { CrmConversation, InboxFilterKey } from "../sdk/types";
@@ -22,13 +24,17 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
   const [search, setSearch] = useState("");
   const [newOpen, setNewOpen] = useState(false);
   const [tagId, setTagId] = useState<string | null>(null);
+  const [etapa, setEtapa] = useState<EtapaFunil | null>(null);
+  const [origem, setOrigem] = useState<OrigemLead | null>(null);
   const { activeConnectionId, activeConnection } = useCrmContext();
-  const conversations = useConversations(filter, search, tagId);
+  const conversations = useConversations(filter, search, tagId, null, etapa, origem);
   const counts = useInboxCounts();
+  const funil = useFunilCounts();
   const tags = useInboxTags();
   const { visiveis, containerRef, sentinelaRef, temMais } = useListaCrescente(conversations, {
-    chave: `${filter}|${search}|${tagId ?? ""}`,
+    chave: `${filter}|${search}|${tagId ?? ""}|${etapa ?? ""}|${origem ?? ""}`,
   });
+  const comFiltro = filter !== "all" || !!tagId || !!etapa || !!origem || !!search.trim();
 
   return (
     <div className="flex h-full w-full flex-col border-r border-border bg-background md:w-[52vw] md:max-w-[720px] md:min-w-[520px]">
@@ -75,6 +81,12 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
         activeTagId={tagId}
         onChange={setFilter}
         onChangeTag={setTagId}
+        etapa={etapa}
+        origem={origem}
+        etapaCounts={funil.etapas}
+        origemCounts={funil.origens}
+        onChangeEtapa={setEtapa}
+        onChangeOrigem={setOrigem}
       />
 
       <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -83,7 +95,7 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
               <InboxIcon className="h-6 w-6 text-muted-foreground" />
             </div>
-            {filter !== "all" || tagId || search.trim() ? (
+            {comFiltro ? (
               <>
                 <p className="text-sm font-medium text-foreground">
                   Nada com esses filtros
@@ -92,6 +104,8 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
                   onClick={() => {
                     setFilter("all");
                     setTagId(null);
+                    setEtapa(null);
+                    setOrigem(null);
                     setSearch("");
                   }}
                   className="text-xs font-medium text-primary hover:underline"

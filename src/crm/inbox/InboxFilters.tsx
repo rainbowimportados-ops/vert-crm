@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Check, Filter, Search, Tag, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Check, Filter, Globe, Search, Tag, TrendingUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -7,18 +8,21 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { InboxFilterKey } from "../sdk/types";
+import { ETAPAS, ORIGENS, type EtapaFunil, type OrigemLead } from "../sdk/funil";
 
+// Separação principal: por vendedor.
 const PRIMARY: { key: InboxFilterKey; label: string }[] = [
   { key: "all", label: "Todas" },
+  { key: "mine", label: "Minhas" },
+  { key: "unassigned", label: "Sem responsável" },
   { key: "unread", label: "Não lidas" },
-  { key: "patients", label: "Pacientes" },
 ];
 
 const STATUS: { key: InboxFilterKey; label: string }[] = [
   { key: "in_progress", label: "Em atendimento" },
   { key: "waiting", label: "Aguardando" },
-  { key: "unassigned", label: "Sem responsável" },
   { key: "closed", label: "Finalizadas" },
+  { key: "patients", label: "Pacientes" },
 ];
 
 const STATUS_LABELS = Object.fromEntries(
@@ -39,6 +43,12 @@ interface Props {
   activeTagId: string | null;
   onChange: (filter: InboxFilterKey) => void;
   onChangeTag: (tagId: string | null) => void;
+  etapa: EtapaFunil | null;
+  origem: OrigemLead | null;
+  etapaCounts: Partial<Record<EtapaFunil, number>>;
+  origemCounts: Partial<Record<OrigemLead, number>>;
+  onChangeEtapa: (etapa: EtapaFunil | null) => void;
+  onChangeOrigem: (origem: OrigemLead | null) => void;
 }
 
 export function InboxFilters({
@@ -48,6 +58,12 @@ export function InboxFilters({
   activeTagId,
   onChange,
   onChangeTag,
+  etapa,
+  origem,
+  etapaCounts,
+  origemCounts,
+  onChangeEtapa,
+  onChangeOrigem,
 }: Props) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
@@ -122,34 +138,41 @@ export function InboxFilters({
             {STATUS.map((item) => {
               const selected = active === item.key;
               return (
-                <button
+                <OptionRow
                   key={item.key}
+                  selected={selected}
+                  label={item.label}
+                  count={counts[item.key] ?? 0}
                   onClick={() => {
                     onChange(selected ? "all" : item.key);
                     setStatusOpen(false);
                   }}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground hover:bg-muted"
-                >
-                  <span className="flex items-center gap-2">
-                    {selected ? (
-                      <Check className="h-3.5 w-3.5 text-primary" />
-                    ) : (
-                      <span className="w-3.5" />
-                    )}
-                    {item.label}
-                  </span>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">
-                    {counts[item.key] ?? 0}
-                  </span>
-                </button>
+                />
               );
             })}
           </PopoverContent>
         </Popover>
       </div>
 
-      {tags.length > 0 && (
-        <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
+        <ChoicePopover
+          icon={<TrendingUp className="h-3.5 w-3.5 flex-none" />}
+          placeholder="Funil"
+          title="Etapa do funil"
+          options={ETAPAS.map((e) => ({ key: e.key, label: e.label, count: etapaCounts[e.key] ?? 0 }))}
+          value={etapa}
+          onChange={(value) => onChangeEtapa(value as EtapaFunil | null)}
+        />
+        <ChoicePopover
+          icon={<Globe className="h-3.5 w-3.5 flex-none" />}
+          placeholder="Origem"
+          title="Origem do lead"
+          options={ORIGENS.map((o) => ({ key: o.key, label: o.label, count: origemCounts[o.key] ?? 0 }))}
+          value={origem}
+          onChange={(value) => onChangeOrigem(value as OrigemLead | null)}
+        />
+
+        {tags.length > 0 && (
           <Popover
             open={tagsOpen}
             onOpenChange={(open) => {
@@ -166,7 +189,6 @@ export function InboxFilters({
                     : "border-border bg-card text-muted-foreground hover:text-foreground",
                 )}
               >
-                {" "}
                 <Tag className="h-3.5 w-3.5 flex-none" />
                 <span className="min-w-0 flex-1 truncate">
                   {activeTag ? activeTag.label : `Etiquetas (${tags.length})`}
@@ -178,7 +200,7 @@ export function InboxFilters({
                 )}
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-72 p-2">
+            <PopoverContent align="end" className="w-72 p-2">
               <div className="relative mb-2">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -230,17 +252,119 @@ export function InboxFilters({
               </div>
             </PopoverContent>
           </Popover>
-          {activeTag && (
-            <button
-              onClick={() => onChangeTag(null)}
-              title="Limpar etiqueta"
-              className="flex h-8 w-8 flex-none items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
+        )}
+        {activeTag && (
+          <button
+            onClick={() => onChangeTag(null)}
+            title="Limpar etiqueta"
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+function OptionRow({
+  selected,
+  label,
+  count,
+  onClick,
+}: {
+  selected: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground hover:bg-muted"
+    >
+      <span className="flex items-center gap-2">
+        {selected ? (
+          <Check className="h-3.5 w-3.5 text-primary" />
+        ) : (
+          <span className="w-3.5" />
+        )}
+        {label}
+      </span>
+      <span className="text-[11px] tabular-nums text-muted-foreground">
+        {count}
+      </span>
+    </button>
+  );
+}
+
+/** Botão compacto que abre uma lista de opções; clicar de novo na escolhida limpa. */
+function ChoicePopover({
+  icon,
+  placeholder,
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  icon: ReactNode;
+  placeholder: string;
+  title: string;
+  options: { key: string; label: string; count: number }[];
+  value: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.key === value) ?? null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          title={title}
+          className={cn(
+            "flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-xl border px-2.5 text-left text-xs transition",
+            selected
+              ? "border-primary/50 bg-primary/5 text-primary"
+              : "border-border bg-card text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {icon}
+          <span className="min-w-0 flex-1 truncate">
+            {selected ? selected.label : placeholder}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-1">
+        <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </p>
+        {options.map((option) => {
+          const isSelected = option.key === value;
+          return (
+            <OptionRow
+              key={option.key}
+              selected={isSelected}
+              label={option.label}
+              count={option.count}
+              onClick={() => {
+                onChange(isSelected ? null : option.key);
+                setOpen(false);
+              }}
+            />
+          );
+        })}
+        {selected && (
+          <button
+            onClick={() => {
+              onChange(null);
+              setOpen(false);
+            }}
+            className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-xs font-medium text-primary hover:bg-muted"
+          >
+            Mostrar todas
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -3,6 +3,8 @@
 // Núcleo agnóstico: não importa nada específico de clínica.
 // ============================================================
 
+import type { EtapaFunil, OrigemLead } from "./funil";
+
 export type CrmModuleKey =
   | "inbox"
   | "conversations"
@@ -139,7 +141,12 @@ export interface CrmConversation {
   unread: number;
   primaryTag: string | null;
   interest: string | null;
+  assigneeId?: string | null;
   assigneeName: string | null;
+  /** Lead mais recente do contato neste número (sem lead = chamou direto no WhatsApp). */
+  leadId?: string | null;
+  leadStage?: EtapaFunil | null;
+  leadOrigin?: OrigemLead;
   priority: "baixa" | "media" | "alta" | null;
   isNewLead: boolean;
   isPatient: boolean;
@@ -160,6 +167,7 @@ export interface CrmMessage {
 
 export type InboxFilterKey =
   | "all"
+  | "mine"
   | "unread"
   | "patients"
   | "in_progress"

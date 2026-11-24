@@ -2,16 +2,19 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCrmContext } from "../provider/CrmProvider";
 import { onlyDigits, isUsableName } from "../sdk/phone";
+import type { EtapaFunil } from "../sdk/funil";
+import type { CrmConversation } from "../sdk/types";
 
 export interface CrmLeadRow {
   id: string;
   status: string | null;
   temperature: string | null;
   source: string | null;
+  intent: string | null;
+  entry_page: string | null;
   estimated_value: number | null;
   created_at: string;
   contact: { id: string; name: string | null; phone: string | null; patient_id: string | null } | null;
-  procedure: { name: string } | null;
 }
 
 export function useLeadsList(status: string) {
@@ -23,7 +26,7 @@ export function useLeadsList(status: string) {
     queryFn: async (): Promise<CrmLeadRow[]> => {
       let query = supabase
         .from("crm_leads")
-        .select("id, status, temperature, source, estimated_value, created_at, contact:crm_contacts(id, name, phone, patient_id), procedure:procedures(name)")
+        .select("id, status, temperature, source, intent, entry_page, estimated_value, created_at, contact:crm_contacts(id, name, phone, patient_id)")
         .eq("organization_id", organizationId)
         .eq("connection_id", activeConnectionId!)
         .order("created_at", { ascending: false })
@@ -34,6 +37,54 @@ export function useLeadsList(status: string) {
       return (data ?? []) as unknown as CrmLeadRow[];
     },
   });
+}
+
+/**
+ * Muda a etapa do funil de uma conversa. Se o contato ainda não é lead neste
+ * número (chamou direto no WhatsApp), cria o lead já na etapa escolhida.
+ */
+export function useSetLeadStage() {
+  const { organizationId } = useCrmContext();
+  const qc = useQueryClient();
+  /** Devolve o id do lead (o existente ou o recém-criado). */
+  return async (conversation: CrmConversation, etapa: EtapaFunil): Promise<string> => {
+    let leadId = conversation.leadId ?? null;
+    if (leadId) {
+      const { error } = await supabase.from("crm_leads").update({ status: etapa }).eq("id", leadId);
+      if (error) throw error;
+    } else {
+      if (!conversation.connectionId) throw new Error("Conversa sem número de WhatsApp.");
+      const { data, error } = await supabase
+        .from("crm_leads")
+        .insert({
+          organization_id: organizationId,
+          connection_id: conversation.connectionId,
+          contact_id: conversation.contact.id,
+          status: etapa,
+          source: "whatsapp",
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      leadId = data.id as string;
+      await supabase.from("crm_contacts").update({ is_lead: true }).eq("id", conversation.contact.id);
+    }
+    qc.invalidateQueries({ queryKey: ["crm-conversations", organizationId] });
+    qc.invalidateQueries({ queryKey: ["crm-leads-list", organizationId] });
+    return leadId;
+  };
+}
+
+/** Muda a etapa direto pelo id do lead (quadro do funil). */
+export function useUpdateLeadStatus() {
+  const { organizationId } = useCrmContext();
+  const qc = useQueryClient();
+  return async (leadId: string, etapa: EtapaFunil): Promise<void> => {
+    const { error } = await supabase.from("crm_leads").update({ status: etapa }).eq("id", leadId);
+    if (error) throw error;
+    qc.invalidateQueries({ queryKey: ["crm-leads-list", organizationId] });
+    qc.invalidateQueries({ queryKey: ["crm-conversations", organizationId] });
+  };
 }
 
 export interface NewLeadInput {

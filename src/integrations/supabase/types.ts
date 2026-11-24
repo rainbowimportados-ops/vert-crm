@@ -1869,6 +1869,12 @@ export type Database = {
           temperature: string | null
           unit_id: string | null
           updated_at: string
+          connection_id: string | null
+          entry_cta: string | null
+          entry_page: string | null
+          intent: string | null
+          source_surface: string | null
+          utm: Json | null
         }
         Insert: {
           budget_id?: string | null
@@ -1886,6 +1892,12 @@ export type Database = {
           temperature?: string | null
           unit_id?: string | null
           updated_at?: string
+          connection_id?: string | null
+          entry_cta?: string | null
+          entry_page?: string | null
+          intent?: string | null
+          source_surface?: string | null
+          utm?: Json | null
         }
         Update: {
           budget_id?: string | null
@@ -1903,6 +1915,12 @@ export type Database = {
           temperature?: string | null
           unit_id?: string | null
           updated_at?: string
+          connection_id?: string | null
+          entry_cta?: string | null
+          entry_page?: string | null
+          intent?: string | null
+          source_surface?: string | null
+          utm?: Json | null
         }
         Relationships: [
           {

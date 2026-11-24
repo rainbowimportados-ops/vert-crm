@@ -67,7 +67,7 @@ export async function searchContactsAndPatients(orgId: string, query: string, co
 async function fetchConversationById(convId: string): Promise<CrmConversation | null> {
   const { data } = await supabase
     .from("conversations")
-    .select("id, contact_id, connection_id, status, priority, is_new_lead, unread_count, assignee_id, last_message_preview, last_message_at, created_at, connection:whatsapp_connections(id, display_name, phone_number, instance_name), contact:crm_contacts(id, name, phone, avatar_url, city, patient_id), procedure:procedures(name)")
+    .select("id, contact_id, connection_id, status, priority, is_new_lead, unread_count, assignee_id, last_message_preview, last_message_at, created_at, connection:whatsapp_connections(id, display_name, phone_number, instance_name), contact:crm_contacts(id, name, phone, avatar_url, city, patient_id)")
     .eq("id", convId).maybeSingle();
   if (!data) return null;
   const r: any = data;
@@ -92,8 +92,8 @@ async function fetchConversationById(convId: string): Promise<CrmConversation | 
     lastMessage: r.last_message_preview ?? "",
     lastMessageAt: r.last_message_at ?? r.created_at,
     unread: r.unread_count ?? 0,
-    primaryTag: r.procedure?.name ?? null,
-    interest: r.procedure?.name ?? null,
+    primaryTag: null, // procedimentos ficam no sistema da clínica (ainda não conectado)
+    interest: null,
     assigneeName: null,
     priority: r.priority ?? null,
     isNewLead: !!r.is_new_lead,
