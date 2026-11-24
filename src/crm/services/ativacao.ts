@@ -26,6 +26,23 @@ export interface FichaAtivacao {
   ultimaEntradaEm: string | null;
   manutencao: boolean;
   resolvidaEm: string | null;
+  /** Última mensagem escrita pelo paciente (para sinais de risco). */
+  textoPaciente: string;
+  /** Paciente mandou áudio depois da última resposta da clínica. */
+  audioSemResposta: boolean;
+  leadEtapa: string | null;
+  leadOrigem: string | null;
+  /** Resumo do Claude para o cartão (null = ainda não gerado). */
+  resumo: ResumoCartao | null;
+}
+
+export interface ResumoCartao {
+  resumo: string;
+  proximo: string;
+  etiquetas: string[];
+  valor: string | null;
+  /** Última mensagem que o Claude leu ao escrever o resumo. */
+  baseEm: string;
 }
 
 const DIA = 24 * 60 * 60 * 1000;
@@ -42,6 +59,44 @@ export function gavetaDe(f: FichaAtivacao, agora = Date.now()): Gaveta | null {
 /** Resolvida = marcada depois da última mensagem; mensagem nova reabre a ficha. */
 export function estaResolvida(f: FichaAtivacao) {
   return !!f.resolvidaEm && new Date(f.resolvidaEm).getTime() >= new Date(f.ultimaMsgEm).getTime();
+}
+
+/** Resumo existe e já leu a última mensagem da conversa. */
+export function resumoEmDia(f: FichaAtivacao) {
+  return !!f.resumo && new Date(f.resumo.baseEm).getTime() >= new Date(f.ultimaMsgEm).getTime();
+}
+
+export type TomEtiqueta = "risco" | "bom" | "valor" | "neutro";
+export interface Etiqueta {
+  texto: string;
+  tom: TomEtiqueta;
+}
+
+const RISCO_PERDA = /or[çc]and|outr[oa]s? (lugar|cl[íi]nica|profissional)|desist|cancel|muito caro|n[ãa]o vou conseguir|vou pensar|deixar pra depois|deixar para (depois|um pr[óo]ximo)/i;
+const RECLAMACAO = /n[ãa]o (ficou|tinha ficado) bo[am]|reclama|insatisfeit|incomodando|d[óo]i|doendo|caiu|quebrou|soltou/i;
+
+/**
+ * Etiquetas do cartão: as calculadas pelo CRM (lead, áudio, sinais no texto do
+ * paciente) somadas às que o Claude deu no resumo, sem repetir.
+ */
+export function etiquetasDe(f: FichaAtivacao): Etiqueta[] {
+  const out: Etiqueta[] = [];
+  const add = (texto: string, tom: TomEtiqueta) => {
+    if (!out.some((e) => e.texto === texto)) out.push({ texto, tom });
+  };
+  if (f.leadEtapa === "finalizado") add("cliente", "bom");
+  else if (f.leadEtapa === "perdido") add("lead perdido", "neutro");
+  else if (f.leadEtapa) add(f.leadOrigem?.startsWith("site:") ? "lead do site" : "lead", "neutro");
+  if (f.audioSemResposta) add("ouvir áudio", "neutro");
+  // sinais na última mensagem do paciente
+  if (RECLAMACAO.test(f.textoPaciente)) add("risco de reclamação", "risco");
+  else if (RISCO_PERDA.test(f.textoPaciente)) add("risco de perda", "risco");
+  if (f.manutencao) add("manutenção", "neutro");
+  for (const e of f.resumo?.etiquetas ?? []) {
+    add(e, /risco/.test(e) ? "risco" : /fechar|agendad/.test(e) ? "bom" : "neutro");
+  }
+  if (f.resumo?.valor) add(f.resumo.valor, "valor");
+  return out.slice(0, 5);
 }
 
 /** Janela de 24 h da API oficial do WhatsApp, a partir da última mensagem do paciente. */
@@ -83,6 +138,19 @@ export function useAtivacaoLista() {
         ultimaEntradaEm: (r.ultima_entrada_em as string) ?? null,
         manutencao: !!r.manutencao,
         resolvidaEm: (r.resolvida_em as string) ?? null,
+        textoPaciente: (r.texto_paciente as string) ?? "",
+        audioSemResposta: !!r.audio_sem_resposta,
+        leadEtapa: (r.lead_etapa as string) ?? null,
+        leadOrigem: (r.lead_origem as string) ?? null,
+        resumo: r.resumo
+          ? {
+              resumo: r.resumo as string,
+              proximo: (r.proximo as string) ?? "",
+              etiquetas: (r.etiquetas as string[]) ?? [],
+              valor: (r.valor as string) ?? null,
+              baseEm: r.resumo_base_em as string,
+            }
+          : null,
       }));
     },
   });
@@ -124,6 +192,18 @@ async function chamarClaude<T>(body: Record<string, unknown>): Promise<T> {
   if (error) throw new Error("O Claude não respondeu agora. Tente de novo.");
   if (!data?.ok) throw new Error(data?.error || "Não deu agora. Tente de novo.");
   return data as T;
+}
+
+/** Quantos cartões o Claude resume por pedido (o mesmo limite da edge function). */
+export const RESUMOS_POR_PEDIDO = 12;
+
+/** Pede ao Claude o resumo dos cartões sem resumo ou com mensagem nova. */
+export async function resumirFichas(conversationIds: string[]) {
+  const r = await chamarClaude<{ resumos: Record<string, unknown>; aviso?: string | null }>({
+    acao: "resumir",
+    conversationIds: conversationIds.slice(0, RESUMOS_POR_PEDIDO),
+  });
+  return { gerados: Object.keys(r.resumos ?? {}).length, aviso: r.aviso ?? null };
 }
 
 export function sugerirCaminhos(conversationId: string, roteiros: Record<TipoMensagem, string>) {

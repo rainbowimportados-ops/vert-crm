@@ -45,7 +45,7 @@ function decodeBase64(value: string) {
 // ---------- Zernio (WhatsApp oficial e Instagram) ----------
 
 const ZERNIO_API = "https://zernio.com/api/v1";
-const ZERNIO_API_KEY = Deno.env.get("ZERNIO_API_KEY") ?? "";
+const ZERNIO_API_KEY = (Deno.env.get("ZERNIO_API_KEY") ?? "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 
 /** Telefone do contato no formato que a Zernio espera (com DDI 55). */
 function telefoneInternacional(phone: string) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estaResolvida, gavetaDe, janela24h, type FichaAtivacao } from "./ativacao";
+import { estaResolvida, etiquetasDe, gavetaDe, janela24h, resumoEmDia, type FichaAtivacao } from "./ativacao";
 
 const agora = new Date("2026-11-24T18:00:00Z").getTime();
 const horasAtras = (h: number) => new Date(agora - h * 3600_000).toISOString();
@@ -17,6 +17,11 @@ const ficha = (p: Partial<FichaAtivacao>): FichaAtivacao => ({
   ultimaEntradaEm: horasAtras(1),
   manutencao: false,
   resolvidaEm: null,
+  textoPaciente: "oi",
+  audioSemResposta: false,
+  leadEtapa: null,
+  leadOrigem: null,
+  resumo: null,
   ...p,
 });
 
@@ -50,5 +55,35 @@ describe("janela de 24 h", () => {
     expect(aberta.restanteMin).toBe(240);
     expect(janela24h(horasAtras(25), agora).aberta).toBe(false);
     expect(janela24h(null, agora).aberta).toBe(false);
+  });
+});
+
+describe("resumo do cartão", () => {
+  const resumo = (baseEm: string) => ({ resumo: "r", proximo: "Ligar", etiquetas: [], valor: null, baseEm });
+  it("vale até chegar mensagem nova", () => {
+    expect(resumoEmDia(ficha({ ultimaMsgEm: horasAtras(3), resumo: resumo(horasAtras(3)) }))).toBe(true);
+    expect(resumoEmDia(ficha({ ultimaMsgEm: horasAtras(1), resumo: resumo(horasAtras(3)) }))).toBe(false);
+    expect(resumoEmDia(ficha({}))).toBe(false);
+  });
+});
+
+describe("etiquetas do cartão", () => {
+  const textos = (p: Partial<FichaAtivacao>) => etiquetasDe(ficha(p)).map((e) => e.texto);
+  it("lead, áudio e sinais no texto do paciente", () => {
+    expect(textos({ leadEtapa: "novo", leadOrigem: "site:landing", audioSemResposta: true })).toEqual(["lead do site", "ouvir áudio"]);
+    expect(textos({ textoPaciente: "Oi, estou orçando em outros lugares" })).toContain("risco de perda");
+    expect(textos({ textoPaciente: "esse dente não tinha ficado bom" })).toContain("risco de reclamação");
+    expect(textos({ leadEtapa: "finalizado" })).toEqual(["cliente"]);
+  });
+  it("junta as do Claude sem repetir e mostra o valor", () => {
+    const f = ficha({
+      audioSemResposta: true,
+      resumo: { resumo: "r", proximo: "p", etiquetas: ["ouvir áudio", "mais perto de fechar"], valor: "R$ 5.100", baseEm: horasAtras(1) },
+    });
+    expect(etiquetasDe(f)).toEqual([
+      { texto: "ouvir áudio", tom: "neutro" },
+      { texto: "mais perto de fechar", tom: "bom" },
+      { texto: "R$ 5.100", tom: "valor" },
+    ]);
   });
 });

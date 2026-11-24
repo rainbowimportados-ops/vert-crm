@@ -2,6 +2,9 @@
 // atendimento ou (2) escreve a próxima mensagem de WhatsApp.
 //
 // POST { acao: "caminhos" | "escrever", conversationId, roteiros, tipo?, extra?, assina? }
+// POST { acao: "resumir", conversationIds: [...] } -> resumo, próximo passo e
+//   etiquetas de cada cartão, gravados em crm_ativacao_resumos. Só refaz o
+//   resumo de quem recebeu mensagem depois do último.
 // Só lê a conversa com o login de quem chamou (RLS): ninguém vê conversa de
 // número que não pode ver. Nada é enviado daqui; o envio continua no
 // crm-send-message, depois que a pessoa confirma.
@@ -12,6 +15,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const MAX_RESUMOS = 12;
 const MODELO = "claude-opus-5-5";
 
 const cors = {
@@ -60,6 +65,13 @@ const CaminhosSchema = z.object({
   ),
 });
 
+const ResumoSchema = z.object({
+  resumo: z.string(),
+  proximo: z.string(),
+  etiquetas: z.array(z.string()),
+  valor: z.string(),
+});
+
 function quando(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
@@ -70,40 +82,27 @@ const SISTEMA = `Você ajuda a recepção do Instituto Vert, clínica de odontol
 Formas de pagamento usuais: à vista no Pix, débito ou dinheiro, ou cartão em até 18-21x com acréscimo da operadora; entrada para reservar a data.
 Use só fatos da conversa e do contexto dado. Nunca invente desconto, data, horário, preço ou resultado clínico. Escreva em português do Brasil.`;
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: cors });
-  const auth = req.headers.get("Authorization") ?? "";
-  if (!auth) return json({ error: "unauthorized" }, 401);
-  if (!Deno.env.get("ANTHROPIC_API_KEY")) return json({ error: "A chave do Claude (ANTHROPIC_API_KEY) não está configurada." }, 503);
+type Db = ReturnType<typeof createClient>;
 
-  const body = await req.json().catch(() => ({}));
-  const acao = body.acao as string;
-  const conversationId = body.conversationId as string;
-  if (!conversationId || !["caminhos", "escrever"].includes(acao)) return json({ error: "pedido inválido" }, 400);
-  const roteiros: Record<string, string> = { ...ROTEIRO_PADRAO };
-  for (const k of Object.keys(ROTEIRO_PADRAO)) {
-    const v = body.roteiros?.[k];
-    if (typeof v === "string" && v.trim()) roteiros[k] = v.slice(0, 4000);
-  }
-
-  // leitura com o login de quem chamou: o RLS decide o que pode ver
-  const db = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } } });
+/** Conversa, contato e lead lidos com o login de quem chamou. */
+async function lerContexto(db: Db, conversationId: string, limite = 40) {
   const { data: conv } = await db
     .from("conversations")
-    .select("id, connection_id, contact:crm_contacts(id, name, phone, instagram_username)")
+    .select("id, organization_id, connection_id, contact:crm_contacts(id, name, phone, instagram_username)")
     .eq("id", conversationId)
     .maybeSingle();
-  if (!conv) return json({ error: "conversa não encontrada" }, 404);
+  if (!conv) return null;
   const contato: any = (conv as any).contact ?? {};
 
   const [{ data: msgs }, { data: lead }] = await Promise.all([
     db.from("messages").select("direction, type, content, message_at").eq("conversation_id", conversationId)
-      .order("message_at", { ascending: false }).limit(40),
+      .order("message_at", { ascending: false }).limit(limite),
     db.from("crm_leads").select("status, source, intent, estimated_value").eq("contact_id", contato.id)
       .eq("connection_id", (conv as any).connection_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
-  const historico = (msgs ?? []).reverse().map((m: any) => {
+  const ultimaEm: string | null = msgs?.[0]?.message_at ?? null;
+  const historico = (msgs ?? []).slice().reverse().map((m: any) => {
     const quem = m.direction === "in" ? "Paciente" : "Clínica";
     const texto = (m.content || "").trim() || (m.type && m.type !== "text" ? `[${m.type}]` : "");
     return `${quem} ${quando(m.message_at)}: ${texto}`;
@@ -114,8 +113,97 @@ Lead: ${lead ? `etapa ${lead.status}${lead.intent ? `, interesse ${lead.intent}`
 Orçamentos: o sistema da clínica ainda não está ligado ao CRM; considere só o que aparece na conversa.
 Conversa recente (mais antiga primeiro):
 ${historico || "(sem mensagens)"}`;
+  return { contexto, nome, ultimaEm, organizationId: (conv as any).organization_id as string };
+}
 
+/** Resumo, próximo passo e etiquetas de cada cartão; grava em crm_ativacao_resumos. */
+async function resumir(db: Db, client: Anthropic, ids: unknown) {
+  const lista = Array.isArray(ids) ? [...new Set(ids.filter((v) => typeof v === "string"))].slice(0, MAX_RESUMOS) as string[] : [];
+  if (!lista.length) return json({ error: "pedido inválido" }, 400);
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: existentes } = await admin.from("crm_ativacao_resumos").select("conversation_id, base_msg_em").in("conversation_id", lista);
+  const base = new Map((existentes ?? []).map((r: any) => [r.conversation_id, r.base_msg_em as string]));
+
+  const resultados: Record<string, unknown> = {};
+  let erro: string | null = null;
+  const fila = [...lista];
+  async function trabalhar() {
+    for (let id = fila.shift(); id; id = fila.shift()) {
+      try {
+        const ctx = await lerContexto(db, id, 25);
+        if (!ctx || !ctx.ultimaEm) continue; // sem acesso ou sem mensagens
+        const anterior = base.get(id);
+        if (anterior && new Date(anterior).getTime() >= new Date(ctx.ultimaEm).getTime()) continue; // ainda vale
+        const response = await client.messages.parse({
+          model: MODELO,
+          max_tokens: 2000,
+          output_config: { effort: "low", format: zodOutputFormat(ResumoSchema) },
+          system: SISTEMA,
+          messages: [{
+            role: "user",
+            content: `${ctx.contexto}
+
+Para o cartão desta conversa no quadro de follow-up da recepção, responda com:
+- resumo: 1 ou 2 frases curtas sobre em que pé está (o que o paciente quer, o que foi combinado, o que trava). Use os fatos e números da conversa.
+- proximo: o próximo passo da recepção, começando com verbo no infinitivo, em até 8 palavras (ex.: "Decidir a contraproposta", "Mandar o link da entrada").
+- etiquetas: de 0 a 3 etiquetas curtas, minúsculas, só destas quando se aplicarem: "mais perto de fechar", "risco de perda", "risco de reclamação", "lead novo", "negociando valor", "agendada", "remarcar", "ouvir áudio", "manutenção", "lentes em resina", "clareamento", "baixa prioridade".
+- valor: o valor em jogo citado na conversa (ex.: "R$ 5.100" ou "pede R$ 500 em R$ 800"); string vazia se não houver.`,
+          }],
+        });
+        if (response.stop_reason === "refusal" || !response.parsed_output) continue;
+        const r = response.parsed_output;
+        const linha = {
+          conversation_id: id,
+          organization_id: ctx.organizationId,
+          resumo: r.resumo.slice(0, 400),
+          proximo: r.proximo.slice(0, 80),
+          etiquetas: r.etiquetas.map((e) => e.toLowerCase().slice(0, 30)).slice(0, 3),
+          valor: r.valor.trim().slice(0, 60) || null,
+          base_msg_em: ctx.ultimaEm,
+          gerado_em: new Date().toISOString(),
+        };
+        const { error } = await admin.from("crm_ativacao_resumos").upsert(linha);
+        if (error) console.error("crm-ativacao resumo", { id, error: error.message });
+        else resultados[id] = linha;
+      } catch (e) {
+        if (e instanceof Anthropic.RateLimitError) { erro = "Muitos pedidos seguidos; espere um pouco."; fila.length = 0; return; }
+        if (e instanceof Anthropic.AuthenticationError) { erro = "A chave do Claude não foi aceita."; fila.length = 0; return; }
+        console.error("crm-ativacao resumo", { id, error: String((e as any)?.message ?? e) });
+      }
+    }
+  }
+  await Promise.all([trabalhar(), trabalhar(), trabalhar(), trabalhar()]);
+  if (erro && !Object.keys(resultados).length) return json({ error: erro }, 200);
+  return json({ ok: true, resumos: resultados, aviso: erro });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+  const auth = req.headers.get("Authorization") ?? "";
+  if (!auth) return json({ error: "unauthorized" }, 401);
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) return json({ error: "A chave do Claude (ANTHROPIC_API_KEY) não está configurada." }, 503);
+
+  const body = await req.json().catch(() => ({}));
+  const acao = body.acao as string;
+  const conversationId = body.conversationId as string;
+  if (acao !== "resumir" && (!conversationId || !["caminhos", "escrever"].includes(acao))) {
+    return json({ error: "pedido inválido" }, 400);
+  }
+  const roteiros: Record<string, string> = { ...ROTEIRO_PADRAO };
+  for (const k of Object.keys(ROTEIRO_PADRAO)) {
+    const v = body.roteiros?.[k];
+    if (typeof v === "string" && v.trim()) roteiros[k] = v.slice(0, 4000);
+  }
+
+  // leitura com o login de quem chamou: o RLS decide o que pode ver
+  const db = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } } });
   const client = new Anthropic();
+
+  if (acao === "resumir") return resumir(db, client, body.conversationIds);
+
+  const ctx = await lerContexto(db, conversationId);
+  if (!ctx) return json({ error: "conversa não encontrada" }, 404);
+  const { contexto, nome } = ctx;
 
   try {
     if (acao === "caminhos") {
