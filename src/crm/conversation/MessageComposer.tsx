@@ -3,6 +3,7 @@ import {
   Loader2,
   Mic,
   Paperclip,
+  Plus,
   Send,
   Smile,
   Sparkles,
@@ -11,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCrmContext } from "../provider/CrmProvider";
 import {
@@ -58,6 +60,7 @@ export function MessageComposer({
   const { fullName } = useAuth();
   const [text, setText] = useState("");
   const [showQuick, setShowQuick] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [sending, setSending] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -263,7 +266,7 @@ export function MessageComposer({
   };
 
   return (
-    <div className="border-t border-border bg-card">
+    <div className="border-t border-border bg-muted/40">
       {pickerOpen && (
         <div className="max-h-56 overflow-y-auto border-b border-border px-2 py-1.5">
           {options.length === 0 ? (
@@ -369,109 +372,145 @@ export function MessageComposer({
         </div>
       )}
 
-      <div className="flex items-end gap-1 px-2 py-2.5 sm:gap-1.5 sm:px-3">
-        <div className="relative flex flex-shrink-0 gap-0.5">
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+        onChange={(event) => void chooseFile(event.target.files?.[0])}
+      />
+      <div className="flex items-end gap-2 px-3 py-3 sm:gap-3 sm:px-5 sm:py-4">
+        {/* + : respostas rápidas, IA e anexo */}
+        <Popover open={plusOpen} onOpenChange={setPlusOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              title="Mais"
+              aria-label="Mais opções de mensagem"
+              className={cn(
+                "flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-border bg-card text-foreground/80 shadow-elevation-sm transition hover:border-primary/40 hover:text-foreground sm:h-12 sm:w-12",
+                (plusOpen || showQuick) && "border-primary/40 text-primary",
+              )}
+            >
+              <Plus className="h-5 w-5" strokeWidth={1.75} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" side="top" className="w-60 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuick((open) => !open);
+                setShowEmoji(false);
+                setPlusOpen(false);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted"
+            >
+              <Zap className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1">Respostas rápidas</span>
+              <kbd className="rounded border border-border px-1 text-[10px] text-muted-foreground">/</kbd>
+            </button>
+            {manifest.modules.aiAssistant && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlusOpen(false);
+                  void onAiAssist?.();
+                }}
+                disabled={!onAiAssist || aiBusy}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+              >
+                {aiBusy ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : <Sparkles className="h-4 w-4 text-primary" />}
+                Gerar resposta com IA
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setPlusOpen(false);
+                fileInputRef.current?.click();
+              }}
+              disabled={!onAttach || sending}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+            >
+              <Paperclip className="h-4 w-4 text-muted-foreground" />
+              Anexar arquivo
+            </button>
+          </PopoverContent>
+        </Popover>
+
+        <div className="flex min-w-0 flex-1 items-end gap-0.5 rounded-[24px] border border-border bg-card py-1 pl-3.5 pr-1.5 shadow-elevation-sm focus-within:border-primary/60 sm:gap-1 sm:py-1.5 sm:pl-4 sm:pr-2">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (slashFilter !== null && options.length > 0) {
+                  pick(options[0]);
+                  return;
+                }
+                void send();
+              }
+              if (event.key === "Escape") {
+                setShowQuick(false);
+                setShowEmoji(false);
+              }
+            }}
+            rows={1}
+            placeholder="Digite uma mensagem…"
+            title="Digite / para abrir as respostas rápidas"
+            disabled={disabled || recording}
+            className="max-h-32 min-h-[36px] w-0 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          />
           <button
             onClick={() => {
               setShowEmoji((open) => !open);
               setShowQuick(false);
             }}
-            className={cn("rounded-xl p-1.5 text-muted-foreground hover:bg-muted sm:p-2", showEmoji && "bg-muted text-foreground")}
+            className={cn("hidden flex-shrink-0 rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground sm:block", showEmoji && "bg-muted text-foreground")}
             title="Emoji"
             type="button"
           >
-            <Smile className="h-[18px] w-[18px]" />
+            <Smile className="h-5 w-5" strokeWidth={1.75} />
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
-            onChange={(event) => void chooseFile(event.target.files?.[0])}
-          />
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={!onAttach || sending}
-            className="rounded-xl p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-40 sm:p-2"
+            className="hidden flex-shrink-0 rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 sm:block"
             title="Anexar arquivo"
             type="button"
           >
-            <Paperclip className="h-[18px] w-[18px]" />
+            <Paperclip className="h-5 w-5" strokeWidth={1.75} />
           </button>
           <button
-            onClick={() => setShowQuick((open) => !open)}
-            className="rounded-xl p-1.5 text-muted-foreground hover:bg-muted sm:p-2"
-            title="Respostas rápidas (ou digite /)"
+            onClick={() =>
+              recording ? finishRecording(false) : void startRecording()
+            }
+            disabled={disabled || sending}
+            aria-pressed={recording}
+            className={cn(
+              "flex-shrink-0 rounded-full p-2 hover:bg-muted disabled:opacity-40",
+              recording ? "bg-destructive/10 text-destructive" : "text-muted-foreground hover:text-foreground",
+            )}
+            title={recording ? "Parar e enviar áudio" : "Gravar áudio"}
             type="button"
           >
-            <Zap className="h-[18px] w-[18px]" />
+            <Mic className="h-5 w-5" strokeWidth={1.75} />
           </button>
-          {manifest.modules.aiAssistant && (
-            <button
-              onClick={() => void onAiAssist?.()}
-              disabled={!onAiAssist || aiBusy}
-              className="hidden rounded-xl p-1.5 text-primary hover:bg-primary/10 disabled:opacity-40 sm:block sm:p-2"
-              title="Gerar resposta com IA"
-              type="button"
-            >
-              {aiBusy ? (
-                <Loader2 className="h-[18px] w-[18px] animate-spin" />
-              ) : (
-                <Sparkles className="h-[18px] w-[18px]" />
-              )}
-            </button>
-          )}
         </div>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              if (slashFilter !== null && options.length > 0) {
-                pick(options[0]);
-                return;
-              }
-              void send();
-            }
-            if (event.key === "Escape") {
-              setShowQuick(false);
-              setShowEmoji(false);
-            }
-          }}
-          rows={1}
-          placeholder="Mensagem…"
-          title="Digite / para abrir as respostas rápidas"
-          disabled={disabled || recording}
-          className="max-h-32 min-h-[40px] w-0 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60"
-        />
-        <button
-          onClick={() =>
-            recording ? finishRecording(false) : void startRecording()
-          }
-          disabled={disabled || sending}
-          aria-pressed={recording}
-          className={cn(
-            "flex-shrink-0 rounded-xl p-1.5 hover:bg-muted disabled:opacity-40 sm:p-2",
-            recording ? "bg-destructive/10 text-destructive" : "text-muted-foreground",
-          )}
-          title={recording ? "Parar e enviar áudio" : "Gravar áudio"}
-          type="button"
-        >
-          <Mic className="h-[18px] w-[18px]" />
-        </button>
+
         <button
           onClick={() => void send()}
           disabled={disabled || recording || !text.trim()}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-elevation-md transition hover:brightness-95 disabled:opacity-50 sm:h-14 sm:w-14"
           title="Enviar"
           type="button"
         >
           {sending ? (
-            <Loader2 className="h-[18px] w-[18px] animate-spin" />
+            <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <Send className="h-[18px] w-[18px]" />
+            <Send className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={1.75} />
           )}
         </button>
       </div>

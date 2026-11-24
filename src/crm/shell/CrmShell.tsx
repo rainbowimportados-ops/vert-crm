@@ -118,7 +118,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
         }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between border-b border-border bg-white px-4 md:hidden">
+        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 md:hidden">
           <span className="text-sm font-bold">{active.label}</span>
           {onExit && (
             <button
@@ -131,9 +131,9 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
           )}
         </header>
         {active.section === "inbox" ? (
-          <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1">
             <div
-              className={cn("min-h-0", selected ? "hidden md:block" : "block")}
+              className={cn("min-h-0 min-w-0 flex-1 md:flex-none", selected ? "hidden md:block" : "block")}
             >
               <ConversationQueue
                 selectedId={selected?.id ?? null}
@@ -142,7 +142,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
             </div>
             <div
               className={cn(
-                "min-h-0 flex-1",
+                "min-h-0 min-w-0 flex-1",
                 selected ? "flex" : "hidden md:flex",
               )}
             >

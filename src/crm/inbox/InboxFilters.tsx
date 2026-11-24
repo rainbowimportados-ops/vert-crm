@@ -37,6 +37,8 @@ interface InboxTag {
 }
 
 interface Props {
+  search: string;
+  onSearch: (value: string) => void;
   active: InboxFilterKey;
   counts: Partial<Record<InboxFilterKey, number>>;
   tags: InboxTag[];
@@ -52,6 +54,8 @@ interface Props {
 }
 
 export function InboxFilters({
+  search,
+  onSearch,
   active,
   counts,
   tags,
@@ -79,51 +83,64 @@ export function InboxFilters({
   );
 
   return (
-    <div className="border-b border-border px-3 pb-2 pt-2">
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 rounded-xl bg-muted p-0.5">
-          {PRIMARY.map((item) => {
-            const selected = active === item.key;
-            const count = counts[item.key] ?? 0;
-            return (
-              <button
-                key={item.key}
-                onClick={() => onChange(item.key)}
-                className={cn(
-                  "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
-                  selected
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <span className="truncate">{item.label}</span>
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      "text-[10px] tabular-nums",
-                      selected ? "text-primary" : "text-foreground/40",
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+    <div className="px-4 pb-3 md:px-5">
+      {/* separação principal: pílulas com contagem */}
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+        {PRIMARY.map((item) => {
+          const selected = active === item.key;
+          const count = counts[item.key] ?? 0;
+          return (
+            <button
+              key={item.key}
+              onClick={() => onChange(item.key)}
+              aria-pressed={selected}
+              className={cn(
+                "flex h-10 flex-none items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors",
+                selected
+                  ? "bg-foreground text-background shadow-elevation-sm"
+                  : "border border-border bg-card text-foreground/80 hover:border-primary/40 hover:text-foreground",
+              )}
+            >
+              <span className="whitespace-nowrap">{item.label}</span>
+              {count > 0 && (
+                <span
+                  className={cn(
+                    "min-w-5 rounded-full px-1.5 py-px text-center text-[11px] tabular-nums",
+                    selected ? "bg-background/20 text-background" : "text-muted-foreground",
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
+      <div className="mt-3 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Buscar por nome, telefone ou mensagem…"
+            aria-label="Buscar conversas"
+            className="h-12 w-full rounded-2xl border border-border bg-card pl-10 pr-3 text-sm shadow-elevation-sm outline-none placeholder:text-muted-foreground focus:border-primary/60"
+          />
+        </div>
         <Popover open={statusOpen} onOpenChange={setStatusOpen}>
           <PopoverTrigger asChild>
             <button
               title="Filtrar por situação"
+              aria-label="Filtrar por situação"
               className={cn(
-                "flex h-8 flex-shrink-0 items-center gap-1 rounded-xl border px-2 text-xs font-medium transition-colors",
+                "flex h-12 flex-shrink-0 items-center justify-center gap-1.5 rounded-2xl border px-3.5 text-xs font-medium shadow-elevation-sm transition-colors",
                 statusActive
                   ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground",
+                  : "border-border bg-card text-foreground/80 hover:border-primary/40 hover:text-foreground",
               )}
             >
-              <Filter className="h-3.5 w-3.5" />
+              <Filter className="h-[18px] w-[18px]" strokeWidth={1.75} />
               {statusActive && (
                 <span className="max-w-[90px] truncate">
                   {STATUS_LABELS[active]}
@@ -183,7 +200,7 @@ export function InboxFilters({
             <PopoverTrigger asChild>
               <button
                 className={cn(
-                  "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-xl border px-2.5 text-left text-xs transition",
+                  "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full border px-3 text-left text-xs transition",
                   activeTag
                     ? "border-primary/50 bg-primary/5 text-primary"
                     : "border-border bg-card text-muted-foreground hover:text-foreground",
@@ -257,7 +274,7 @@ export function InboxFilters({
           <button
             onClick={() => onChangeTag(null)}
             title="Limpar etiqueta"
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -322,7 +339,7 @@ function ChoicePopover({
         <button
           title={title}
           className={cn(
-            "flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-xl border px-2.5 text-left text-xs transition",
+            "flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-full border px-3 text-left text-xs transition",
             selected
               ? "border-primary/50 bg-primary/5 text-primary"
               : "border-border bg-card text-muted-foreground hover:text-foreground",

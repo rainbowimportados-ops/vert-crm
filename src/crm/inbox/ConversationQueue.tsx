@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, Inbox as InboxIcon, MessageSquarePlus } from "lucide-react";
+import { Inbox as InboxIcon, SquarePen } from "lucide-react";
 import { InboxFilters } from "./InboxFilters";
 import { ConversationCard } from "./ConversationCard";
 import { NewConversationDialog } from "./NewConversationDialog";
@@ -37,34 +37,25 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
   const comFiltro = filter !== "all" || !!tagId || !!etapa || !!origem || !!search.trim();
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-border bg-background md:w-[52vw] md:max-w-[720px] md:min-w-[520px]">
-      <div className="px-4 pt-5 md:px-5 md:pt-6">
-        <div className="mb-4 flex items-end justify-between gap-3">
+    <div className="flex h-full w-full flex-col border-r border-border bg-background md:w-[400px] lg:w-[440px] xl:w-[480px]">
+      <div className="px-4 pt-5 md:px-5 md:pt-7">
+        <div className="mb-5 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-card-foreground">
+            <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-foreground">
               Conversas
             </h1>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
-              {activeConnection ? `Painel ${activeConnection.displayName}` : "Nenhum WhatsApp liberado"}
+            <p className="mt-1 truncate text-[15px] text-muted-foreground">
+              {activeConnection ? `Atendimentos do ${activeConnection.displayName}` : "Nenhum WhatsApp liberado"}
             </p>
           </div>
           <button
             onClick={() => setNewOpen(true)}
             title="Nova conversa"
-            className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-white transition hover:bg-primary"
+            aria-label="Nova conversa"
+            className="inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-elevation-md transition hover:brightness-95"
           >
-            <MessageSquarePlus className="h-5 w-5" />
+            <SquarePen className="h-5 w-5" strokeWidth={1.75} />
           </button>
-        </div>
-
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar conversas…"
-            className="h-11 w-full rounded-lg border border-border bg-white pl-9 pr-3 text-sm outline-none focus:border-primary"
-          />
         </div>
       </div>
 
@@ -75,6 +66,8 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
         defaultConnectionId={activeConnectionId}
       />
       <InboxFilters
+        search={search}
+        onSearch={setSearch}
         active={filter}
         counts={counts}
         tags={tags}
@@ -89,7 +82,7 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
         onChangeOrigem={setOrigem}
       />
 
-      <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 md:px-3">
         {conversations.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">

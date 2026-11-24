@@ -54,7 +54,7 @@ export function TagPopover({
 
   return (
     <div
-      className="absolute left-4 top-12 z-20 w-72 rounded-xl border border-border bg-card p-2 shadow-elevation-lg"
+      className="absolute right-4 top-2 z-20 w-72 rounded-xl border border-border bg-card p-2 shadow-elevation-lg"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="relative mb-2">
