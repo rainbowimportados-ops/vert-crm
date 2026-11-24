@@ -12,6 +12,7 @@
 // Sem OPENAI_API_KEY configurada, sai sem fazer nada.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { zernioSendText } from "../_shared/zernio.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
   if (!contact) return json({ ok: true, skipped: "contato não encontrado" });
 
   const { data: conv } = await db.from("conversations")
-    .select("id, status, ai_mode, assignee_id, connection_id")
+    .select("id, status, ai_mode, assignee_id, connection_id, provider_conversation_id")
     .eq("organization_id", organizationId).eq("contact_id", contact.id)
     .match(connectionId ? { connection_id: connectionId } : {})
     .order("last_message_at", { ascending: false, nullsFirst: false }).limit(1).maybeSingle();
@@ -98,9 +99,24 @@ Deno.serve(async (req) => {
   if (cfg.auto_ocr && messageType === "image" && providerMessageId) {
     try {
       const { data: connRow } = await db.from("whatsapp_connections")
-        .select("base_url, api_key, instance_name").eq("organization_id", organizationId)
+        .select("base_url, api_key, instance_name, provider").eq("organization_id", organizationId)
         .eq("id", conv.connection_id).maybeSingle();
-      if (connRow?.base_url && connRow?.api_key) {
+      let media: any = null;
+      if (connRow?.provider === "zernio") {
+        // No Zernio a imagem já foi guardada no bucket pelo zernio-webhook.
+        const { data: row } = await db.from("messages").select("media_url")
+          .eq("organization_id", organizationId).eq("provider_message_id", providerMessageId).maybeSingle();
+        const caminho = typeof row?.media_url === "string" && row.media_url.startsWith("crm-media:") ? row.media_url.slice(10) : null;
+        if (caminho) {
+          const { data: blob } = await db.storage.from("crm-media").download(caminho);
+          if (blob && blob.size <= 18_000_000) {
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            let bin = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            media = { base64: btoa(bin), mimetype: blob.type || "image/jpeg" };
+          }
+        }
+      } else if (connRow?.base_url && connRow?.api_key) {
         const mediaResp = await fetch(
           `${connRow.base_url.replace(/\/+$/, "")}/chat/getBase64FromMediaMessage/${encodeURIComponent(connRow.instance_name)}`,
           {
@@ -109,7 +125,9 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ message: { key: { id: providerMessageId } }, convertToMp4: false }),
           },
         );
-        const media = await mediaResp.json().catch(() => ({}));
+        media = await mediaResp.json().catch(() => ({}));
+      }
+      if (media) {
         const b64 = media?.base64 ?? media?.media ?? null;
         if (b64) {
           const mime = media?.mimetype || "image/jpeg";
@@ -235,9 +253,23 @@ Responda APENAS JSON: {"reply":"...","acoes":[...]} (acoes pode ser lista vazia)
               type: "text", content: texto, delivery_status: "pending", message_at: nowIso, is_ai: true,
             }).select("id").single();
             const { data: connRow } = await db.from("whatsapp_connections")
-              .select("base_url, api_key, instance_name").eq("organization_id", organizationId)
+              .select("base_url, api_key, instance_name, provider, zernio_account_id").eq("organization_id", organizationId)
               .eq("id", conv.connection_id).maybeSingle();
-            if (connRow?.base_url && connRow?.api_key && msg) {
+            if (connRow?.provider === "zernio" && msg) {
+              const envio = await zernioSendText(db, connRow, conv, contact.phone, texto);
+              if (envio.ok) {
+                const d = envio.data?.data ?? envio.data;
+                await db.from("messages").update({ delivery_status: "sent", provider_message_id: d?.platformMessageId ?? d?.messageId ?? null }).eq("id", msg.id);
+                await db.from("conversations").update({
+                  last_message_preview: texto.slice(0, 120), last_message_at: nowIso,
+                  status: conv.status === "finalizado" ? "novo" : conv.status,
+                }).eq("id", conv.id);
+                results.reply = texto;
+              } else {
+                await db.from("messages").update({ delivery_status: "failed", delivery_error: (envio.error ?? "").slice(0, 600) }).eq("id", msg.id);
+                results.replyError = envio.error;
+              }
+            } else if (connRow?.base_url && connRow?.api_key && msg) {
               const resp = await fetch(`${connRow.base_url.replace(/\/+$/, "")}/message/sendText/${encodeURIComponent(connRow.instance_name)}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", apikey: connRow.api_key },
