@@ -65,6 +65,10 @@ export interface CrmConnectionPanel {
   status: string;
   isDefault: boolean;
   sector: string | null;
+  /** "evolution" ou "zernio" (API oficial: janela de 24 h no WhatsApp). */
+  provider?: string | null;
+  /** "whatsapp" ou "instagram". */
+  channel?: string | null;
 }
 
 /** Contexto resolvido pelo backend (nunca confiar só no frontend). */

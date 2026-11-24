@@ -9,6 +9,7 @@ import {
   MessagesSquare,
   Settings,
   ShieldCheck,
+  Sparkles,
   Users,
   Wifi,
   WifiOff,
@@ -20,6 +21,7 @@ import { useInboxCounts } from "../services/conversations";
 
 export type CrmSection =
   | "inbox"
+  | "ativacao"
   | "contacts"
   | "leads"
   | "campaigns"
@@ -42,6 +44,14 @@ export const CRM_NAV: CrmNavItem[] = [
     module: "conversations",
     label: "Conversas",
     icon: MessagesSquare,
+  },
+  {
+    // usa a mesma permissão de Conversas: quem atende também faz o follow-up
+    id: "ativacao",
+    section: "ativacao",
+    module: "conversations",
+    label: "Ativar pacientes",
+    icon: Sparkles,
   },
   {
     id: "leads",
@@ -123,7 +133,7 @@ export function CrmSidebar({
   const [panelsOpen, setPanelsOpen] = useState(false);
   const counts = useInboxCounts();
   const items = CRM_NAV.filter((item) =>
-    item.id === "conversations"
+    item.module === "conversations"
       ? manifest.modules.inbox || manifest.modules.conversations
       : manifest.modules[item.module],
   ).filter((item) => canAccessCrmNav(item, role, permissions));
