@@ -37,7 +37,7 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
   const comFiltro = filter !== "all" || !!tagId || !!etapa || !!origem || !!search.trim();
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-border bg-background md:w-[400px] lg:w-[440px] xl:w-[480px]">
+    <div className="flex h-full w-full flex-col border-r border-border bg-background md:w-[340px] lg:w-[380px] 2xl:w-[460px]">
       <div className="px-4 pt-5 md:px-5 md:pt-7">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div className="min-w-0">

@@ -140,10 +140,10 @@ export function CrmSidebar({
 
   return (
     /* Casca clara, no tom do papel da marca: segue os tokens do tema. */
-    <aside className="flex h-full w-[72px] flex-none flex-col justify-between border-r border-border bg-muted/50 text-foreground md:w-[248px]">
+    <aside className="flex h-full w-[72px] flex-none flex-col justify-between border-r border-border bg-muted/50 text-foreground xl:w-[248px]">
       <div className="min-h-0 overflow-y-auto">
-        <div className="flex h-[126px] items-center px-4 md:px-7">
-          <div className="hidden md:block">
+        <div className="flex h-[126px] items-center px-4 xl:px-7">
+          <div className="hidden xl:block">
             <div className="text-[40px] font-light leading-none tracking-[.2em] text-foreground">
               VERT
             </div>
@@ -151,7 +151,7 @@ export function CrmSidebar({
               INSTITUTO ODONTOLÓGICO
             </div>
           </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border text-lg text-foreground md:hidden">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border text-lg text-foreground xl:hidden">
             V
           </div>
         </div>
@@ -161,7 +161,7 @@ export function CrmSidebar({
             onClick={() => connections.length > 1 && setPanelsOpen((open) => !open)}
             title={activeConnection?.displayName ?? "Selecionar painel do WhatsApp"}
             aria-expanded={panelsOpen}
-            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3 text-left shadow-elevation-sm transition hover:border-primary/40 md:px-3.5"
+            className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3 text-left shadow-elevation-sm transition hover:border-primary/40 xl:px-3.5"
           >
             <span className="relative flex h-8 w-8 flex-none items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <MessageCircleMore className="h-4 w-4" />
@@ -172,7 +172,7 @@ export function CrmSidebar({
                 )}
               />
             </span>
-            <span className="hidden min-w-0 flex-1 md:block">
+            <span className="hidden min-w-0 flex-1 xl:block">
               <small className="block text-[10px] uppercase tracking-[.12em] text-muted-foreground">Painel ativo</small>
               <strong className="mt-0.5 block truncate text-sm font-medium">
                 {activeConnection?.displayName ?? "Sem WhatsApp liberado"}
@@ -181,11 +181,11 @@ export function CrmSidebar({
                 <small className="block truncate text-[11px] text-muted-foreground">{activeConnection.phoneNumber}</small>
               )}
             </span>
-            {connections.length > 1 && <ChevronsUpDown className="hidden h-4 w-4 flex-none text-muted-foreground md:block" />}
+            {connections.length > 1 && <ChevronsUpDown className="hidden h-4 w-4 flex-none text-muted-foreground xl:block" />}
           </button>
 
           {panelsOpen && connections.length > 1 && (
-            <div className="absolute left-2.5 top-[calc(100%-10px)] z-50 w-[300px] overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-elevation-lg md:left-3 md:w-[calc(100%-24px)]">
+            <div className="absolute left-2.5 top-[calc(100%-10px)] z-50 w-[300px] overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-elevation-lg xl:left-3 xl:w-[calc(100%-24px)]">
               <div className="px-2 pb-2 pt-1 text-[10px] uppercase tracking-[.13em] text-muted-foreground">
                 Trocar de CRM
               </div>
@@ -228,16 +228,16 @@ export function CrmSidebar({
                 onClick={() => onSelect(item)}
                 title={item.label}
                 className={cn(
-                  "flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-[15px] transition md:px-4",
+                  "flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-[15px] transition xl:px-4",
                   active
                     ? "bg-primary font-medium text-primary-foreground shadow-elevation-md"
                     : "text-foreground/85 hover:bg-foreground/[.05] hover:text-foreground",
                 )}
               >
                 <Icon className="h-[21px] w-[21px] flex-none stroke-[1.7]" />
-                <span className="hidden truncate md:block">{item.label}</span>
+                <span className="hidden truncate xl:block">{item.label}</span>
                 {item.id === "conversations" && counts.unread > 0 && (
-                  <b className={cn("ml-auto hidden min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] md:block", active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary text-primary-foreground")}>
+                  <b className={cn("ml-auto hidden min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] xl:block", active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary text-primary-foreground")}>
                     {counts.unread > 99 ? "99+" : counts.unread}
                   </b>
                 )}
@@ -246,12 +246,12 @@ export function CrmSidebar({
           })}
         </nav>
       </div>
-      <div className="p-3 md:px-5 md:pb-7">
+      <div className="p-3 xl:px-5 xl:pb-7">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-primary text-sm font-semibold uppercase text-primary-foreground">
             {role.charAt(0)}
           </div>
-          <div className="hidden min-w-0 flex-1 md:block">
+          <div className="hidden min-w-0 flex-1 xl:block">
             <div className="truncate text-sm font-medium">
               {installationName}
             </div>
@@ -259,9 +259,9 @@ export function CrmSidebar({
               {role === "admin" ? "Administrador" : role}
             </div>
           </div>
-          <ChevronDown className="hidden h-4 w-4 md:block" />
+          <ChevronDown className="hidden h-4 w-4 xl:block" />
         </div>
-        <div className="mt-4 hidden items-center gap-2 pl-10 text-xs text-foreground/80 md:flex">
+        <div className="mt-4 hidden items-center gap-2 pl-10 text-xs text-foreground/80 xl:flex">
           {connected ? (
             <Wifi className="h-4 w-4 text-success" />
           ) : (
