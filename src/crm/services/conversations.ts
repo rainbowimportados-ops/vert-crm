@@ -124,17 +124,32 @@ export function useCrmRealtime() {
   const qc = useQueryClient();
   useEffect(() => {
     if (isDemoMode() || !organizationId) return;
+    // Agrupa os eventos: numa importação chegam centenas por minuto e cada um
+    // recarregava a lista inteira (conversas, leads, perfis, etiquetas e fotos)
+    // até o navegador recusar pedidos (ERR_INSUFFICIENT_RESOURCES).
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let mensagens = false;
+    const agendar = (comMensagens: boolean) => {
+      mensagens ||= comMensagens;
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (mensagens) qc.invalidateQueries({ queryKey: ["crm-messages"] });
+        mensagens = false;
+        qc.invalidateQueries({ queryKey: ["crm-conversations", organizationId] });
+      }, 1500);
+    };
     const ch = supabase
       .channel(`crm-${organizationId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `organization_id=eq.${organizationId}` },
-        () => qc.invalidateQueries({ queryKey: ["crm-conversations", organizationId] }))
+        () => agendar(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `organization_id=eq.${organizationId}` },
-        () => {
-          qc.invalidateQueries({ queryKey: ["crm-messages"] });
-          qc.invalidateQueries({ queryKey: ["crm-conversations", organizationId] });
-        })
+        () => agendar(true))
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(ch);
+    };
   }, [organizationId, qc]);
 }
 
