@@ -18,7 +18,7 @@ const ZERNIO_API = "https://zernio.com/api/v1";
 const ZERNIO_API_KEY = (Deno.env.get("ZERNIO_API_KEY") ?? "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 const PRAZO_MS = 110_000; // para antes do limite da edge function e devolve o cursor
 const MAX_MSGS_POR_CONVERSA = 100; // no histórico, as 100 mais recentes já dão o contexto
-const PARALELO = 6;
+const PARALELO = 3; // mais que isso esgota o pool de conexões do banco
 
 type Json = Record<string, any>;
 
@@ -198,7 +198,15 @@ Deno.serve(async (req) => {
         const trabalhar = async () => {
           for (let conv = fila.shift(); conv; conv = fila.shift()) {
             if (Date.now() - inicio > PRAZO_MS) { fila.length = 0; return; }
-            const g = await gravarConversa(db, conn, conv, desde);
+            let g: { novas: number; conversaId: string | null };
+            try {
+              g = await gravarConversa(db, conn, conv, desde);
+            } catch (e) {
+              // uma conversa com erro não para as outras; a próxima rodada tenta de novo
+              erro = String((e as Error)?.message ?? e);
+              console.error("zernio-sync conversa", { conversa: conv.id, erro });
+              continue;
+            }
             conversas += 1;
             mensagens += g.novas;
             processadas += 1;
@@ -206,7 +214,7 @@ Deno.serve(async (req) => {
           }
         };
         await Promise.all(Array.from({ length: PARALELO }, trabalhar));
-        if (processadas < alvo.length) { fim = false; break; } // estourou o prazo: devolve o cursor desta página
+        if (Date.now() - inicio > PRAZO_MS && processadas < alvo.length) { fim = false; break; } // estourou o prazo
         if (fim) break;
         cursor = r.pagination?.hasMore ? r.pagination?.nextCursor : undefined;
         if (!cursor) fim = true;
