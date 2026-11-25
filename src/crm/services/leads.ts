@@ -17,6 +17,22 @@ export interface CrmLeadRow {
   contact: { id: string; name: string | null; phone: string | null; patient_id: string | null } | null;
 }
 
+/**
+ * O painel ativo e as conexões antigas do mesmo número (ex.: a Evolution que
+ * virou Zernio). Os leads gravados na conexão antiga continuam aparecendo.
+ */
+export async function conexoesDoMesmoNumero(organizationId: string, activeConnectionId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("whatsapp_connections")
+    .select("id, phone_number")
+    .eq("organization_id", organizationId);
+  const lista = (data ?? []) as { id: string; phone_number: string | null }[];
+  const fim = (t: string | null) => (t ?? "").replace(/\D/g, "").slice(-10);
+  const alvo = fim(lista.find((c) => c.id === activeConnectionId)?.phone_number ?? null);
+  const ids = alvo ? lista.filter((c) => fim(c.phone_number) === alvo).map((c) => c.id) : [];
+  return ids.includes(activeConnectionId) ? ids : [activeConnectionId, ...ids];
+}
+
 export function useLeadsList(status: string) {
   const { organizationId, activeConnectionId } = useCrmContext();
   return useQuery({
@@ -24,11 +40,12 @@ export function useLeadsList(status: string) {
     enabled: !!organizationId && !!activeConnectionId,
     staleTime: 15_000,
     queryFn: async (): Promise<CrmLeadRow[]> => {
+      const conexoes = await conexoesDoMesmoNumero(organizationId!, activeConnectionId!);
       let query = supabase
         .from("crm_leads")
         .select("id, status, temperature, source, intent, entry_page, estimated_value, created_at, contact:crm_contacts(id, name, phone, patient_id)")
         .eq("organization_id", organizationId)
-        .eq("connection_id", activeConnectionId!)
+        .in("connection_id", conexoes)
         .order("created_at", { ascending: false })
         .limit(300);
       if (status && status !== "all") query = query.eq("status", status);

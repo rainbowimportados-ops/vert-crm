@@ -379,10 +379,22 @@ function PainelFicha({
   const [roteiros, setRoteiros] = useState(lerRoteiros);
   const [tipo, setTipo] = useState<TipoMensagem>(f.ultimaDirecao === "in" ? "negociacao" : "ativacao");
   const [extra, setExtra] = useState("");
-  const [assina, setAssina] = useState(() => lerLocal("vert-crm-assina", ""));
+  const [assina, setAssina] = useState(() => lerLocal("vert-crm-assina", "Júlia"));
   const [texto, setTexto] = useState(() => lerLocal(`vert-crm-rascunho-${f.conversationId}`, ""));
-  const [sugestao, setSugestao] = useState<Sugestao | null>(null);
+  // caminhos e envio ficam guardados por conversa: reabrir a ficha não perde o trabalho
+  const chaveCaminhos = `vert-crm-caminhos-${f.conversationId}`;
+  const chaveEnvio = `vert-crm-enviado-${f.conversationId}`;
+  const [sugestao, setSugestao] = useState<Sugestao | null>(() => {
+    try {
+      const salvo = JSON.parse(lerLocal(chaveCaminhos, "null"));
+      // só vale se nenhuma mensagem chegou depois
+      return salvo && salvo.base === f.ultimaMsgEm ? (salvo.sugestao as Sugestao) : null;
+    } catch {
+      return null;
+    }
+  });
   const [escolhido, setEscolhido] = useState<number | null>(null);
+  const [enviadoEm, setEnviadoEm] = useState<string | null>(() => lerLocal(chaveEnvio, "") || null);
   const [ocupado, setOcupado] = useState<"caminhos" | "escrever" | "enviar" | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const resolvida = estaResolvida(f);
@@ -403,8 +415,10 @@ function PainelFicha({
   const pedirCaminhos = async () => {
     setOcupado("caminhos");
     try {
-      setSugestao(await sugerirCaminhos(f.conversationId, roteiros));
+      const nova = await sugerirCaminhos(f.conversationId, roteiros);
+      setSugestao(nova);
       setEscolhido(null);
+      gravarLocal(chaveCaminhos, JSON.stringify({ base: f.ultimaMsgEm, sugestao: nova }));
     } catch (e) {
       falha(e);
     } finally {
@@ -412,10 +426,10 @@ function PainelFicha({
     }
   };
 
-  const escrever = async () => {
+  const escrever = async (o?: { tipo: TipoMensagem; extra: string }) => {
     setOcupado("escrever");
     try {
-      setTexto(await escreverMensagem({ conversationId: f.conversationId, tipo, roteiros, extra, assina }));
+      setTexto(await escreverMensagem({ conversationId: f.conversationId, tipo: o?.tipo ?? tipo, roteiros, extra: o?.extra ?? extra, assina }));
       setConfirmando(false);
     } catch (e) {
       falha(e);
@@ -428,9 +442,14 @@ function PainelFicha({
     setOcupado("enviar");
     try {
       await enviar(f.conversationId, texto.trim());
+      const agora = new Date().toISOString();
+      gravarLocal(chaveEnvio, agora);
+      setEnviadoEm(agora);
       toast({ title: "Mensagem enviada" });
       setTexto("");
       setConfirmando(false);
+      // enviou: a ficha sai da fila até o paciente responder
+      if (!resolvida) await marcar(f.conversationId, true).catch(() => undefined);
     } catch (e) {
       falha(e);
     } finally {
@@ -531,10 +550,16 @@ function PainelFicha({
                       {c.fechamento && <p className="mt-1 text-xs"><b>Fechamento:</b> {c.fechamento}</p>}
                       <p className="mt-1 text-xs text-muted-foreground">Risco: {c.risco}</p>
                       <button
-                        onClick={() => { setEscolhido(i); setTipo(c.tipo); setExtra(c.instrucao); }}
+                        onClick={() => {
+                          setEscolhido(i);
+                          setTipo(c.tipo);
+                          setExtra(c.instrucao);
+                          void escrever({ tipo: c.tipo, extra: c.instrucao });
+                        }}
+                        disabled={ocupado !== null}
                         className="mt-2 inline-flex h-8 items-center rounded-lg border border-border px-2.5 text-xs hover:border-primary"
                       >
-                        Usar este caminho
+                        {ocupado === "escrever" && escolhido === i ? "Escrevendo…" : "Usar este caminho"}
                       </button>
                     </div>
                   ))}
@@ -659,6 +684,11 @@ function PainelFicha({
                     <Check className="h-3.5 w-3.5" /> {resolvida ? "Reabrir" : "Marcar resolvido"}
                   </button>
                 </div>
+              )}
+              {enviadoEm && (
+                <p className="mt-2 text-xs text-success">
+                  Enviado por aqui em {new Date(enviadoEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.
+                </p>
               )}
               <p className="mt-2 text-[11px] text-muted-foreground">A mensagem só sai quando você confirma, pelo número deste painel.</p>
             </section>

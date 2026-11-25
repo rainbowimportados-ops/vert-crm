@@ -209,8 +209,9 @@ Deno.serve(async (req) => {
     if (acao === "caminhos") {
       const response = await client.messages.parse({
         model: MODELO,
-        max_tokens: 16000,
-        output_config: { effort: "medium", format: zodOutputFormat(CaminhosSchema) },
+        max_tokens: 6000,
+        // effort baixo: a recepção espera a resposta com a ficha aberta
+        output_config: { effort: "low", format: zodOutputFormat(CaminhosSchema) },
         system: SISTEMA,
         messages: [{
           role: "user",

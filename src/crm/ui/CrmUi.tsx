@@ -22,7 +22,7 @@ export function CrmStatCard({ icon: Icon, label, value, helper, tone = "brown" }
   const tones = { brown: "bg-accent text-primary", green: "bg-success/10 text-success", blue: "bg-muted text-primary", orange: "bg-accent text-warning" };
   return <div className="flex min-h-[110px] items-center gap-4 rounded-xl border border-border bg-white px-5 py-4 shadow-elevation-md">
     <span className={cn("flex h-14 w-14 flex-none items-center justify-center rounded-full", tones[tone])}><Icon className="h-7 w-7 stroke-[1.7]" /></span>
-    <span className="min-w-0"><span className="block text-sm text-sidebar-foreground">{label}</span><strong className="mt-0.5 block truncate text-[28px] font-semibold leading-none tracking-[-.03em] text-card-foreground">{value}</strong>{helper && <small className="mt-2 block truncate text-xs text-muted-foreground">{helper}</small>}</span>
+    <span className="min-w-0"><span className="block text-sm text-muted-foreground">{label}</span><strong className="mt-0.5 block truncate text-[28px] font-semibold leading-none tracking-[-.03em] text-card-foreground">{value}</strong>{helper && <small className="mt-2 block truncate text-xs text-muted-foreground">{helper}</small>}</span>
   </div>;
 }
 

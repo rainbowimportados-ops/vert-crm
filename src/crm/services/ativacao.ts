@@ -189,7 +189,17 @@ export interface Sugestao {
 
 async function chamarClaude<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("crm-ativacao", { body });
-  if (error) throw new Error("O Claude não respondeu agora. Tente de novo.");
+  if (error) {
+    // a edge function devolve o motivo em JSON (ex.: chave do Claude ausente)
+    let motivo: string | null = null;
+    try {
+      const ctx = (error as { context?: Response }).context;
+      if (ctx && typeof ctx.json === "function") motivo = (await ctx.json())?.error ?? null;
+    } catch {
+      /* corpo sem JSON */
+    }
+    throw new Error(motivo || "O Claude não respondeu agora. Tente de novo.");
+  }
   if (!data?.ok) throw new Error(data?.error || "Não deu agora. Tente de novo.");
   return data as T;
 }
