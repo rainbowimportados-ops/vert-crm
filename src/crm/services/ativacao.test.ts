@@ -22,6 +22,7 @@ const ficha = (p: Partial<FichaAtivacao>): FichaAtivacao => ({
   leadEtapa: null,
   leadOrigem: null,
   resumo: null,
+  clinica: null,
   ...p,
 });
 
@@ -85,5 +86,16 @@ describe("etiquetas do cartão", () => {
       { texto: "mais perto de fechar", tom: "bom" },
       { texto: "R$ 5.100", tom: "valor" },
     ]);
+  });
+});
+
+describe("etiquetas do sistema da clínica", () => {
+  it("mostra 'no Santé' e o valor aguardando quando achou o paciente", () => {
+    const t = etiquetasDe(ficha({ clinica: { status: "ok", aguardando: 13800, aprovado: 540, url: null } }), "Santé").map((e) => e.texto);
+    expect(t).toContain("no Santé");
+    expect(t.some((x) => x.includes("13.800") && x.includes("aguardando"))).toBe(true);
+  });
+  it("mostra 'lead novo' quando o telefone não está no sistema", () => {
+    expect(etiquetasDe(ficha({ clinica: { status: "nao_encontrado", aguardando: 0, aprovado: 0, url: null } }), "Santé").map((e) => e.texto)).toContain("lead novo");
   });
 });

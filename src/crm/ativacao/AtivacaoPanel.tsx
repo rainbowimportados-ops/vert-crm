@@ -28,6 +28,8 @@ import {
 } from "../services/ativacao";
 import { ROTEIRO_PADRAO, TIPOS, lerRoteiros, salvarRoteiros } from "./roteiros";
 import { displayName, maskPhone } from "../sdk/phone";
+import { OrcamentosClinica } from "../clinica/OrcamentosClinica";
+import { reaisCurto, useSistemaClinica } from "../services/clinica";
 import type { CrmConversation } from "../sdk/types";
 
 function lerLocal(chave: string, padrao: string) {
@@ -78,6 +80,8 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
   const [ocultar, setOcultar] = useState(true);
   const [gavetaMobile, setGavetaMobile] = useState<Gaveta>("hoje");
   const [aberta, setAberta] = useState<FichaAtivacao | null>(null);
+  const { data: sistema } = useSistemaClinica();
+  const nomeSistema = sistema?.nome ?? "sistema";
 
   const porGaveta = useMemo(() => {
     const out: Record<Gaveta, FichaAtivacao[]> = { hoje: [], parado: [], follow: [], manut: [] };
@@ -90,7 +94,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
       if (q) {
         const alvo = [
           f.nome, f.instagram, f.ultimoTexto, f.resumo?.resumo, f.resumo?.proximo,
-          etiquetasDe(f).map((e) => e.texto).join(" "),
+          etiquetasDe(f, nomeSistema).map((e) => e.texto).join(" "),
         ].join(" ").toLowerCase();
         if (!alvo.includes(q) && !(digitos && (f.telefone ?? "").includes(digitos))) return;
       }
@@ -102,7 +106,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
     out.follow.sort((a, b) => b.ultimaMsgEm.localeCompare(a.ultimaMsgEm));
     out.manut.sort((a, b) => b.ultimaMsgEm.localeCompare(a.ultimaMsgEm));
     return out;
-  }, [fichas, busca, ocultar]);
+  }, [fichas, busca, ocultar, nomeSistema]);
 
   // mantém a ficha aberta em dia quando a lista recarrega
   useEffect(() => {
@@ -112,6 +116,10 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
   }, [fichas, aberta]);
 
   const oficial = activeConnection?.provider === "zernio" && (activeConnection?.channel ?? "whatsapp") === "whatsapp";
+  const totalAguardando = useMemo(
+    () => Object.values(porGaveta).flat().filter((f) => !estaResolvida(f)).reduce((t, f) => t + (f.clinica?.aguardando ?? 0), 0),
+    [porGaveta],
+  );
 
   // Resumos do Claude: a gaveta "Responder hoje" se resume sozinha; as outras
   // têm um botão. Cada conversa é pedida no máximo uma vez por abertura da tela,
@@ -168,6 +176,12 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
               {g.titulo.toLowerCase()}
             </span>
           ))}
+          {totalAguardando > 0 && (
+            <span className="text-sm text-muted-foreground">
+              <b className="mr-1 text-lg font-semibold text-foreground tabular-nums">{reaisCurto(totalAguardando)}</b>
+              em orçamentos aguardando no {nomeSistema}
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
@@ -229,6 +243,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
                       ficha={f}
                       gaveta={g.id}
                       resumindo={resumindo === g.id && !resumoEmDia(f) && pedidos.current.has(f.conversationId)}
+                      nomeSistema={nomeSistema}
                       onAbrir={() => setAberta(f)}
                     />
                   ))
@@ -296,16 +311,18 @@ function FichaCard({
   ficha: f,
   gaveta,
   resumindo,
+  nomeSistema,
   onAbrir,
 }: {
   ficha: FichaAtivacao;
   gaveta: Gaveta;
   resumindo: boolean;
+  nomeSistema: string;
   onAbrir: () => void;
 }) {
   const resolvida = estaResolvida(f);
   const urgente = gaveta === "parado" || (gaveta === "hoje" && Date.now() - new Date(f.ultimaMsgEm).getTime() > 12 * 3600_000);
-  const etiquetas = etiquetasDe(f);
+  const etiquetas = etiquetasDe(f, nomeSistema);
   // resumo antigo ainda ajuda; o cartão avisa que chegou mensagem depois dele
   const resumo = f.resumo;
   const desatualizado = !!resumo && !resumoEmDia(f);
@@ -361,7 +378,7 @@ function FichaCard({
   );
 }
 
-function PainelFicha({
+export function PainelFicha({
   ficha: f,
   oficial,
   onFechar,
@@ -517,9 +534,9 @@ function PainelFicha({
                 ))
               )}
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Orçamentos do Santé ainda não aparecem aqui: o sistema da clínica não está ligado ao CRM.
-            </p>
+            <div className="mt-4 rounded-xl border border-border bg-card p-3">
+              <OrcamentosClinica contactId={f.contactId} />
+            </div>
           </div>
 
           <div className="min-w-0 space-y-4">
@@ -541,6 +558,19 @@ function PainelFicha({
                   <div className="rounded-lg bg-muted/60 p-3 text-sm">
                     {sugestao.resumo}
                     {sugestao.etapa && <p className="mt-1 text-xs"><b>Etapa:</b> {sugestao.etapa}</p>}
+                    {(sugestao.classificacao || sugestao.temperatura) && (
+                      <p className="mt-1 text-xs">
+                        <b>Classificação:</b> {sugestao.classificacao ?? "—"}
+                        {sugestao.temperatura && <> · <b>Temperatura:</b> <span className={cn(sugestao.temperatura === "quente" ? "text-destructive" : sugestao.temperatura === "morna" ? "text-warning" : "text-muted-foreground")}>{sugestao.temperatura}</span></>}
+                      </p>
+                    )}
+                    {sugestao.objecao && sugestao.objecao !== "nenhuma" && <p className="mt-1 text-xs"><b>Objeção:</b> {sugestao.objecao}</p>}
+                    {sugestao.aprovacao_necessaria && !/^n[ãa]o\b/i.test(sugestao.aprovacao_necessaria) && (
+                      <p className="mt-1 text-xs text-destructive"><b>Precisa de aprovação:</b> {sugestao.aprovacao_necessaria}</p>
+                    )}
+                    {(sugestao.pendencias?.length ?? 0) > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground"><b>A validar:</b> {sugestao.pendencias!.join("; ")}</p>
+                    )}
                   </div>
                   {sugestao.caminhos.map((c, i) => (
                     <div key={i} className={cn("rounded-lg border p-3", escolhido === i ? "border-primary ring-1 ring-primary" : "border-border")}>

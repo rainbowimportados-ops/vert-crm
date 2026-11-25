@@ -5,7 +5,8 @@
 //   message.delivered / message.read / message.failed -> crm_zernio_status
 //
 // Segurança: toda entrega vem assinada em X-Zernio-Signature (HMAC-SHA256 do
-// corpo bruto com ZERNIO_WEBHOOK_SECRET). Sem assinatura válida, 401.
+// corpo bruto com o segredo do webhook, que fica no Vault do banco ou em
+// ZERNIO_WEBHOOK_SECRET). Sem assinatura válida, 401.
 // A Zernio pede resposta em até 5 s: o trabalho pesado (baixar anexos) roda
 // depois da resposta, em EdgeRuntime.waitUntil.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -41,11 +42,27 @@ function iguais(a: string, b: string) {
   return diff === 0;
 }
 
+// Segredo guardado no Vault do banco (crm_zernio_webhook_secret), lido uma vez
+// por instância. Vale junto com o ZERNIO_WEBHOOK_SECRET das edge functions.
+let segredoDoVault: Promise<string | null> | null = null;
+function lerSegredoDoVault() {
+  segredoDoVault ??= createClient(SUPABASE_URL, SERVICE_KEY)
+    .rpc("crm_zernio_webhook_secret")
+    .then(({ data, error }) => {
+      if (error) console.error("zernio-webhook vault", error.message);
+      return typeof data === "string" && data.trim() ? data.trim() : null;
+    }, () => null);
+  return segredoDoVault;
+}
+
 async function assinaturaValida(raw: string, recebida: string | null) {
-  if (!SEGREDOS.length || !recebida) return false;
+  if (!recebida) return false;
+  const vault = await lerSegredoDoVault();
+  const segredos = vault ? [vault, ...SEGREDOS.filter((s) => s !== vault)] : SEGREDOS;
+  if (!segredos.length) return false;
   // aceita "abc…", "sha256=abc…" e "t=…,v1=abc…"
   const candidatos = recebida.split(",").map((parte) => parte.trim().replace(/^(sha256|v1)=/i, ""));
-  for (const segredo of SEGREDOS) {
+  for (const segredo of segredos) {
     const key = await crypto.subtle.importKey(
       "raw", new TextEncoder().encode(segredo), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
     );
@@ -217,6 +234,7 @@ Deno.serve(async (req) => {
     // diagnóstico sem expor segredo: só formato e tamanhos
     console.warn("zernio-webhook assinatura recusada", {
       temSegredo: WEBHOOK_SECRET.length > 0,
+      temVault: !!(await lerSegredoDoVault()),
       tamanhoSegredo: WEBHOOK_SECRET.trim().length,
       tamanhoBruto: SEGREDO_BRUTO.length,
       // 8 primeiros hex do SHA-256 do segredo limpo: confere o valor sem revelá-lo
