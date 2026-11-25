@@ -12,6 +12,8 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { useReport } from "../services/reports";
 import { formatarDuracao } from "../sdk/duracao";
 import { CrmEmpty, CrmPageHeader, CrmStatCard } from "../ui/CrmUi";
+import { PainelAtendimento } from "../sla/PainelAtendimento";
+import type { CrmConversation } from "../sdk/types";
 import { SkeletonCards, SkeletonText } from "@/components/ui/skeletons";
 
 function daysAgoIso(n: number) {
@@ -23,7 +25,7 @@ function daysAgoIso(n: number) {
 
 const CORES = ["#985d3a", "#b88664", "#d0aa8d", "#e4d5ca"];
 
-export function ReportsPanel() {
+export function ReportsPanel({ onOpen }: { onOpen: (c: CrmConversation) => void }) {
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to] = useState(new Date().toISOString());
   const {
@@ -86,6 +88,7 @@ export function ReportsPanel() {
           Exportar
         </button>
       </CrmPageHeader>
+      <PainelAtendimento onOpen={onOpen} />
 
       {/* As outras quatro abas ainda não têm relatório por trás — estão sendo
           construídas na #81. Até lá continuam desenhadas para não mudar a
@@ -163,12 +166,12 @@ export function ReportsPanel() {
             />
             <CrmStatCard
               icon={CheckCircle2}
-              label="Conversas Respondidas"
+              label="Mensagens enviadas"
               value={r.messages_out}
             />
             <CrmStatCard
               icon={Clock3}
-              label="Tempo Médio de Resposta"
+              label="1ª resposta (média)"
               value={formatarDuracao(r.avg_first_response_seconds)}
             />
             <CrmStatCard icon={Percent} label="Taxa de Conversão" value={`${conversion}%`} />

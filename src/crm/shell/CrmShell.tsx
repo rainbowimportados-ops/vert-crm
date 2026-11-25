@@ -12,6 +12,7 @@ import { ConversationQueue } from "../inbox/ConversationQueue";
 import { ConversationPanel } from "../conversation/ConversationPanel";
 import { useCrmContext } from "../provider/CrmProvider";
 import { useCrmRealtime } from "../services/conversations";
+import { useLembretesAtendimento } from "../sla/useLembretesAtendimento";
 import type { CrmConversation } from "../sdk/types";
 
 /**
@@ -86,6 +87,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
     setSelected(conversation);
     setActive(item);
   };
+  useLembretesAtendimento(openConversation);
 
   if (!allowedNav.length)
     return (
@@ -183,7 +185,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
         ) : active.section === "reports" ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Suspense fallback={<SkeletonPage />}>
-              <ReportsPanel />
+              <ReportsPanel onOpen={openConversation} />
             </Suspense>
           </div>
         ) : active.section === "team" ? (

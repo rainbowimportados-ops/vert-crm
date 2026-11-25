@@ -18,6 +18,7 @@ import type { CrmModuleKey } from "../sdk/types";
 import { useCrmContext } from "../provider/CrmProvider";
 import { canAccessCrmModule } from "../sdk/access";
 import { useInboxCounts } from "../services/conversations";
+import { useSla } from "../services/sla";
 
 export type CrmSection =
   | "inbox"
@@ -132,6 +133,7 @@ export function CrmSidebar({
   } = useCrmContext();
   const [panelsOpen, setPanelsOpen] = useState(false);
   const counts = useInboxCounts();
+  const sla = useSla();
   const items = CRM_NAV.filter((item) =>
     item.module === "conversations"
       ? manifest.modules.inbox || manifest.modules.conversations
@@ -236,6 +238,17 @@ export function CrmSidebar({
               >
                 <Icon className="h-[21px] w-[21px] flex-none stroke-[1.7]" />
                 <span className="hidden truncate xl:block">{item.label}</span>
+                {item.id === "ativacao" && sla.atrasados > 0 && (
+                  <b
+                    title={`${sla.atrasados} paciente(s) sem resposta há mais de 15 min`}
+                    className={cn(
+                      "ml-auto hidden min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] xl:block",
+                      active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground",
+                    )}
+                  >
+                    {sla.atrasados > 99 ? "99+" : sla.atrasados}
+                  </b>
+                )}
                 {item.id === "conversations" && counts.unread > 0 && (
                   <b className={cn("ml-auto hidden min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] xl:block", active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary text-primary-foreground")}>
                     {counts.unread > 99 ? "99+" : counts.unread}
