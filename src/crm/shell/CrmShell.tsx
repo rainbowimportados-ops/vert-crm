@@ -9,6 +9,7 @@ import {
   type CrmNavItem,
 } from "./CrmSidebar";
 import { ConversationQueue } from "../inbox/ConversationQueue";
+import { PanoramaBar } from "./PanoramaBar";
 import { ConversationPanel } from "../conversation/ConversationPanel";
 import { useCrmContext } from "../provider/CrmProvider";
 import { useCrmRealtime } from "../services/conversations";
@@ -87,6 +88,14 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
     setActive(item);
   };
 
+  const itemAtivacao = allowedNav.find((navItem) => navItem.section === "ativacao");
+  const irParaAtivacao = itemAtivacao
+    ? () => {
+        setActive(itemAtivacao);
+        setSelected(null);
+      }
+    : undefined;
+
   if (!allowedNav.length)
     return (
       <div className="flex h-full items-center justify-center bg-background p-6 text-center">
@@ -130,6 +139,12 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
             </button>
           )}
         </header>
+        {(active.section === "inbox" || active.section === "ativacao") && (
+          // no celular, com uma conversa aberta, a linha some para sobrar espaço
+          <div className={cn(active.section === "inbox" && selected ? "hidden md:block" : "block")}>
+            <PanoramaBar onAtivacao={active.section === "inbox" ? irParaAtivacao : undefined} />
+          </div>
+        )}
         {active.section === "inbox" ? (
           <div className="flex min-h-0 min-w-0 flex-1">
             <div
