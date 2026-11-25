@@ -5,6 +5,7 @@
 // POST { acao: "testar", telefone? }               -> admin/gestor
 // POST { acao: "buscar", contactId, forcar? }      -> quem vê o contato
 // POST { acao: "vincular", contactId, link }       -> quem vê o contato
+// POST { acao: "lote" } com x-sync-token          -> cron: confere contatos sem ficha
 //
 // Como lê: entra no sistema pelo servidor (login web com e-mail e senha, ou
 // chave de API), busca o paciente pelo telefone, abre as páginas dele e o
@@ -245,8 +246,42 @@ const CAMPOS_CONFIG = [
   "busca_paciente", "padrao_id", "paginas_paciente", "link_paciente", "ativo",
 ] as const;
 
+/**
+ * Conferência automática (cron a cada 15 min): para cada clínica com o sistema
+ * ligado, lê alguns contatos com conversa recente que ainda não têm ficha (ou
+ * têm ficha velha). Assim o painel sabe quem é paciente e quem é para conquistar.
+ */
+async function lote(token: string) {
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: esperado } = await admin.rpc("crm_zernio_sync_token");
+  if (typeof esperado !== "string" || !esperado || token !== esperado) return json({ error: "não autorizado" }, 401);
+  const limite = Date.now() + 110_000;
+  const { data: sistemas } = await admin.from("crm_clinic_systems").select("*").eq("ativo", true).eq("segredo_salvo", true);
+  const resultado: Json[] = [];
+  for (const cfg of sistemas ?? []) {
+    const { data: pendentes } = await admin.rpc("crm_clinica_pendentes", { _org: cfg.organization_id, _limite: 6 });
+    const linha: Json = { organizacao: cfg.organization_id, lidos: 0, pacientes: 0, nao_pacientes: 0, erros: 0 };
+    for (const p of pendentes ?? []) {
+      if (Date.now() > limite) break;
+      try {
+        const ficha: Json = await buscar(admin, cfg, { id: p.contact_id, name: p.name, phone: p.phone }, {});
+        linha.lidos++;
+        if (ficha.status === "ok") linha.pacientes++;
+        else linha.nao_pacientes++;
+      } catch {
+        linha.erros++;
+        if (linha.erros >= 2 && linha.lidos === 0) break; // login caiu: tenta no próximo ciclo
+      }
+    }
+    resultado.push(linha);
+  }
+  return json({ ok: true, resultado });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+  const tokenCron = req.headers.get("x-sync-token");
+  if (tokenCron) return lote(tokenCron);
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth) return json({ error: "Não autenticado." }, 401);
 
