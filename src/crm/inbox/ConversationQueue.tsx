@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Inbox as InboxIcon, SquarePen } from "lucide-react";
 import { InboxFilters } from "./InboxFilters";
 import { ConversationCard } from "./ConversationCard";
@@ -13,6 +13,8 @@ import type { EtapaFunil, OrigemLead } from "../sdk/funil";
 import { useCrmContext } from "../provider/CrmProvider";
 import { useListaCrescente } from "@/hooks/use-lista-crescente";
 import type { CrmConversation, InboxFilterKey } from "../sdk/types";
+import { useSla } from "../services/sla";
+import { PainelAtendimento } from "../sla/PainelAtendimento";
 
 interface Props {
   selectedId: string | null;
@@ -27,8 +29,18 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
   const [etapa, setEtapa] = useState<EtapaFunil | null>(null);
   const [origem, setOrigem] = useState<OrigemLead | null>(null);
   const { activeConnectionId, activeConnection } = useCrmContext();
-  const conversations = useConversations(filter, search, tagId, null, etapa, origem);
-  const counts = useInboxCounts();
+  const sla = useSla();
+  const semResposta = useMemo(() => new Set(sla.aguardando.map((f) => f.conversationId)), [sla.aguardando]);
+  const todas = useConversations(filter === "no_reply" ? "all" : filter, search, tagId, null, etapa, origem);
+  // "Sem resposta": quem espera há mais tempo primeiro
+  const conversations = useMemo(() => {
+    if (filter !== "no_reply") return todas;
+    return todas
+      .filter((c) => semResposta.has(c.id))
+      .sort((a, b) => (a.lastMessageAt ?? "").localeCompare(b.lastMessageAt ?? ""));
+  }, [todas, filter, semResposta]);
+  const contagens = useInboxCounts();
+  const counts = useMemo(() => ({ ...contagens, no_reply: sla.aguardando.length }), [contagens, sla.aguardando.length]);
   const funil = useFunilCounts();
   const tags = useInboxTags();
   const { visiveis, containerRef, sentinelaRef, temMais } = useListaCrescente(conversations, {
@@ -57,6 +69,10 @@ export function ConversationQueue({ selectedId, onSelect }: Props) {
             <SquarePen className="h-5 w-5" strokeWidth={1.75} />
           </button>
         </div>
+      </div>
+
+      <div className="px-4 pb-3 md:px-5">
+        <PainelAtendimento onOpen={onSelect} compacto />
       </div>
 
       <NewConversationDialog

@@ -177,4 +177,6 @@ export type InboxFilterKey =
   | "in_progress"
   | "waiting"
   | "closed"
-  | "unassigned";
+  | "unassigned"
+  /** Paciente falou por último e ninguém respondeu. */
+  | "no_reply";

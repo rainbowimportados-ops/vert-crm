@@ -284,3 +284,24 @@ export function fichaDaConversa(
     clinica: null,
   };
 }
+
+/** Conversa mínima para abrir a ficha na tela de Conversas. */
+export function paraConversa(f: FichaAtivacao, connectionId: string | null): CrmConversation {
+  return {
+    id: f.conversationId,
+    connectionId,
+    contact: { id: f.contactId, name: f.nome ?? "", phone: f.telefone ?? "", avatarUrl: null, city: null, unit: null, patientId: null },
+    status: "novo",
+    lastMessage: f.ultimoTexto,
+    lastMessageAt: f.ultimaMsgEm,
+    unread: 0,
+    primaryTag: null,
+    interest: null,
+    assigneeId: f.assigneeId,
+    assigneeName: null,
+    priority: null,
+    isNewLead: false,
+    isPatient: false,
+  };
+}
+
