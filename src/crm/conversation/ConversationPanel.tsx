@@ -11,6 +11,7 @@ import {
   MoreVertical,
   Paperclip,
   Sparkles,
+  Handshake,
   StickyNote,
   Tag as TagIcon,
   UserRound,
@@ -43,6 +44,8 @@ import {
 import { useAiAssist, type AiAction, type AiResult } from "../services/ai";
 import { isDemoMode } from "../services/demo";
 import { useCrmContext } from "../provider/CrmProvider";
+import { PainelFicha } from "../ativacao/AtivacaoPanel";
+import { fichaDaConversa, useAtivacaoLista } from "../services/ativacao";
 import type { CrmConversation, CrmMessage } from "../sdk/types";
 
 type Tab = "conversa" | "dados" | "historico" | "notas" | "arquivos";
@@ -73,7 +76,9 @@ interface Props {
 }
 
 export function ConversationPanel({ conversation, onBack }: Props) {
-  const { manifest } = useCrmContext();
+  const { manifest, activeConnection } = useCrmContext();
+  const { data: fichasQuadro } = useAtivacaoLista();
+  const [copilotoOpen, setCopilotoOpen] = useState(false);
   const sendText = useSendMessage();
   const sendMedia = useSendMediaMessage();
   const integ = manifest.integrations ?? {};
@@ -120,6 +125,7 @@ export function ConversationPanel({ conversation, onBack }: Props) {
     setValuesOpen(false);
     setTagOpen(false);
     setAiOpen(false);
+    setCopilotoOpen(false);
     setAiResult(null);
   }, [conversation?.id]);
   useEffect(() => {
@@ -286,6 +292,7 @@ export function ConversationPanel({ conversation, onBack }: Props) {
             {integ.agenda && (
               <RoundAction className="hidden sm:flex" icon={CalendarDays} label="Agendar" onClick={() => setScheduleOpen(true)} />
             )}
+            <RoundAction icon={Handshake} label="Copiloto de vendas" active={copilotoOpen} onClick={() => setCopilotoOpen(true)} />
           </>
         }
         menu={
@@ -769,6 +776,16 @@ export function ConversationPanel({ conversation, onBack }: Props) {
             </div>
           )}
         </div>
+      )}
+
+      {copilotoOpen && (
+        <PainelFicha
+          key={conversation.id}
+          ficha={fichaDaConversa(conversation, base, fichasQuadro?.find((f) => f.conversationId === conversation.id))}
+          oficial={activeConnection?.provider === "zernio" && (activeConnection?.channel ?? "whatsapp") === "whatsapp"}
+          onFechar={() => setCopilotoOpen(false)}
+          onAbrirConversa={() => setCopilotoOpen(false)}
+        />
       )}
 
       {scheduleOpen && (

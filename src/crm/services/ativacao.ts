@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCrmContext } from "../provider/CrmProvider";
+import type { CrmConversation, CrmMessage } from "../sdk/types";
 
 // "Ativar pacientes": quadro de follow-up montado a partir das conversas.
 
@@ -34,6 +35,8 @@ export interface FichaAtivacao {
   leadOrigem: string | null;
   /** Resumo do Claude para o cartão (null = ainda não gerado). */
   resumo: ResumoCartao | null;
+  /** O que foi lido do sistema da clínica (Santé ou outro); null = ainda não lido. */
+  clinica: { status: "ok" | "nao_encontrado" | "erro"; aguardando: number; aprovado: number; url: string | null } | null;
 }
 
 export interface ResumoCartao {
@@ -79,7 +82,7 @@ const RECLAMACAO = /n[ãa]o (ficou|tinha ficado) bo[am]|reclama|insatisfeit|inco
  * Etiquetas do cartão: as calculadas pelo CRM (lead, áudio, sinais no texto do
  * paciente) somadas às que o Claude deu no resumo, sem repetir.
  */
-export function etiquetasDe(f: FichaAtivacao): Etiqueta[] {
+export function etiquetasDe(f: FichaAtivacao, nomeSistema = "sistema"): Etiqueta[] {
   const out: Etiqueta[] = [];
   const add = (texto: string, tom: TomEtiqueta) => {
     if (!out.some((e) => e.texto === texto)) out.push({ texto, tom });
@@ -87,6 +90,9 @@ export function etiquetasDe(f: FichaAtivacao): Etiqueta[] {
   if (f.leadEtapa === "finalizado") add("cliente", "bom");
   else if (f.leadEtapa === "perdido") add("lead perdido", "neutro");
   else if (f.leadEtapa) add(f.leadOrigem?.startsWith("site:") ? "lead do site" : "lead", "neutro");
+  if (f.clinica?.status === "ok") add(`no ${nomeSistema}`, "bom");
+  if (f.clinica?.aguardando) add(`${(f.clinica.aguardando).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} aguardando`, "valor");
+  else if (f.clinica?.status === "nao_encontrado") add("lead novo", "neutro");
   if (f.audioSemResposta) add("ouvir áudio", "neutro");
   // sinais na última mensagem do paciente
   if (RECLAMACAO.test(f.textoPaciente)) add("risco de reclamação", "risco");
@@ -151,6 +157,14 @@ export function useAtivacaoLista() {
               baseEm: r.resumo_base_em as string,
             }
           : null,
+        clinica: r.clinica_status
+          ? {
+              status: r.clinica_status as "ok" | "nao_encontrado" | "erro",
+              aguardando: Number(r.clinica_aguardando) || 0,
+              aprovado: Number(r.clinica_aprovado) || 0,
+              url: (r.clinica_url as string) ?? null,
+            }
+          : null,
       }));
     },
   });
@@ -184,6 +198,11 @@ export interface CaminhoSugerido {
 export interface Sugestao {
   resumo: string;
   etapa: string;
+  classificacao?: string;
+  temperatura?: "fria" | "morna" | "quente";
+  objecao?: string;
+  aprovacao_necessaria?: string;
+  pendencias?: string[];
   caminhos: CaminhoSugerido[];
 }
 
@@ -219,4 +238,39 @@ export async function escreverMensagem(p: {
 }) {
   const r = await chamarClaude<{ texto: string }>({ acao: "escrever", ...p });
   return r.texto;
+}
+
+/**
+ * Ficha do copiloto para uma conversa aberta na tela de Conversas: usa a do
+ * quadro quando existe; senão monta uma com as mensagens carregadas.
+ */
+export function fichaDaConversa(
+  c: CrmConversation,
+  mensagens: Pick<CrmMessage, "direction" | "content" | "createdAt" | "type">[],
+  doQuadro?: FichaAtivacao | null,
+): FichaAtivacao {
+  if (doQuadro) return doQuadro;
+  const ultima = mensagens[mensagens.length - 1];
+  const entradas = mensagens.filter((m) => m.direction === "in");
+  const ultimaEntrada = entradas[entradas.length - 1];
+  return {
+    conversationId: c.id,
+    contactId: c.contact.id,
+    nome: c.contact.name || null,
+    telefone: c.contact.phone || null,
+    instagram: null,
+    assigneeId: c.assigneeId,
+    ultimaDirecao: ultima?.direction ?? "in",
+    ultimaMsgEm: ultima?.createdAt ?? c.lastMessageAt ?? new Date().toISOString(),
+    ultimoTexto: ultima?.content ?? c.lastMessage ?? "",
+    ultimaEntradaEm: ultimaEntrada?.createdAt ?? null,
+    manutencao: false,
+    resolvidaEm: null,
+    textoPaciente: ultimaEntrada?.content ?? "",
+    audioSemResposta: ultima?.direction === "in" && ultima.type === "audio",
+    leadEtapa: null,
+    leadOrigem: null,
+    resumo: null,
+    clinica: null,
+  };
 }

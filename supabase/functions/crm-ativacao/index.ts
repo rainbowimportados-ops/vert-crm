@@ -19,6 +19,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MAX_RESUMOS = 12;
 const MODELO = "claude-opus-5-5";
+const QUEBRA = String.fromCharCode(10);
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -109,7 +110,7 @@ function textoClinica(c: any) {
     `- ${o.titulo}${o.data ? ` (${o.data})` : ""}: aguardando ${reais(o.aguardando)}, aprovado ${reais(o.aprovado)}${o.situacao ? `, ${o.situacao}` : ""}`);
   return `Sistema da clínica (lido em ${new Date(c.buscado_em).toLocaleDateString("pt-BR")}): ${p.nome ?? "paciente"}${p.desde ? `, paciente desde ${p.desde}` : ""}${p.observacao ? `. Observação: ${p.observacao}` : ""}.
 Orçamentos:
-${linhas.join("\n") || "- nenhum orçamento registrado"}`;
+${linhas.join(QUEBRA) || "- nenhum orçamento registrado"}`;
 }
 
 /** Conversa, contato e lead lidos com o login de quem chamou. */
@@ -135,8 +136,8 @@ async function lerContexto(db: Db, conversationId: string, limite = 40) {
     const quem = m.direction === "in" ? "Paciente" : "Clínica";
     const texto = (m.content || "").trim() || (m.type && m.type !== "text" ? `[${m.type}]` : "");
     return `${quem} ${quando(m.message_at)}: ${texto}`;
-  }).join("\n");
-  const nome: string = contato.name && !/^\+?\d+$/.test(contato.name) ? contato.name : "";
+  }).join(QUEBRA);
+  const nome: string = contato.name && !/^[+]?[0-9]+$/.test(contato.name) ? contato.name : "";
   const contexto = `Paciente: ${nome || "nome não informado"}${contato.instagram_username ? ` (Instagram @${contato.instagram_username})` : ""}.
 Lead: ${lead ? `etapa ${lead.status}${lead.intent ? `, interesse ${lead.intent}` : ""}${lead.source ? `, origem ${lead.source}` : ""}${lead.estimated_value ? `, valor estimado R$ ${lead.estimated_value}` : ""}` : "sem lead registrado"}.
 ${textoClinica(clinica)}

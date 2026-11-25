@@ -7,6 +7,7 @@ import {
   Plug,
   Settings,
   ShieldCheck,
+  Stethoscope,
   Tag,
   UserRound,
   Wrench,
@@ -16,6 +17,7 @@ import { ConnectionSettings } from "./ConnectionSettings";
 import { AiAgentSettings } from "./AiAgentSettings";
 import { AutoMessagesSettings } from "./AutoMessagesSettings";
 import { QuickRepliesSettings } from "./QuickRepliesSettings";
+import { ClinicSystemSettings } from "./ClinicSystemSettings";
 import {
   CustomFieldsSettingsPanel,
   GeneralSettingsPanel,
@@ -35,6 +37,7 @@ type Key =
   | "fields"
   | "automations"
   | "integrations"
+  | "clinica"
   | "permissions"
   | "notifications"
   | "greeting"
@@ -48,6 +51,7 @@ const nav: { key: Key; label: string; icon: typeof Settings }[] = [
   { key: "fields", label: "Campos Personalizados", icon: Wrench },
   { key: "automations", label: "Automação com IA", icon: Bot },
   { key: "integrations", label: "Integrações", icon: Plug },
+  { key: "clinica", label: "Sistema da clínica", icon: Stethoscope },
   { key: "permissions", label: "Permissões", icon: ShieldCheck },
   { key: "notifications", label: "Notificações", icon: Bell },
   { key: "greeting", label: "Mensagens de Saudação", icon: MessageSquareText },
@@ -107,6 +111,7 @@ export function SettingsWorkspace({ initial = "general" }: { initial?: Key }) {
         {active === "fields" && <CustomFieldsSettingsPanel />}
         {active === "automations" && <AiAgentSettings />}
         {active === "integrations" && <IntegrationsSettingsPanel />}
+        {active === "clinica" && <ClinicSystemSettings />}
         {active === "permissions" && <PermissionsSettingsPanel />}
         {active === "notifications" && <NotificationsSettingsPanel />}
         {(active === "greeting" || active === "away") && (
