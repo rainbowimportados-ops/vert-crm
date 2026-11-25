@@ -13,6 +13,7 @@ import { ETAPAS, ORIGENS, type EtapaFunil, type OrigemLead } from "../sdk/funil"
 // Separação principal: por vendedor.
 const PRIMARY: { key: InboxFilterKey; label: string }[] = [
   { key: "all", label: "Todas" },
+  { key: "no_reply", label: "Sem resposta" },
   { key: "mine", label: "Minhas" },
   { key: "unassigned", label: "Sem responsável" },
   { key: "unread", label: "Não lidas" },

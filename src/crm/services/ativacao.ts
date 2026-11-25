@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCrmContext } from "../provider/CrmProvider";
+import type { CrmConversation } from "../sdk/types";
 
 // "Ativar pacientes": quadro de follow-up montado a partir das conversas.
 
@@ -230,3 +231,24 @@ export async function escreverMensagem(p: {
   const r = await chamarClaude<{ texto: string }>({ acao: "escrever", ...p });
   return r.texto;
 }
+
+/** Conversa mínima para abrir a ficha na tela de Conversas. */
+export function paraConversa(f: FichaAtivacao, connectionId: string | null): CrmConversation {
+  return {
+    id: f.conversationId,
+    connectionId,
+    contact: { id: f.contactId, name: f.nome ?? "", phone: f.telefone ?? "", avatarUrl: null, city: null, unit: null, patientId: null },
+    status: "novo",
+    lastMessage: f.ultimoTexto,
+    lastMessageAt: f.ultimaMsgEm,
+    unread: 0,
+    primaryTag: null,
+    interest: null,
+    assigneeId: f.assigneeId,
+    assigneeName: null,
+    priority: null,
+    isNewLead: false,
+    isPatient: false,
+  };
+}
+

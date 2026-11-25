@@ -14,6 +14,7 @@ import {
   etiquetasDe,
   gavetaDe,
   janela24h,
+  paraConversa,
   resumirFichas,
   resumoEmDia,
   sugerirCaminhos,
@@ -28,6 +29,7 @@ import {
 } from "../services/ativacao";
 import { ROTEIRO_PADRAO, TIPOS, lerRoteiros, salvarRoteiros } from "./roteiros";
 import { displayName, maskPhone } from "../sdk/phone";
+import { PainelAtendimento } from "../sla/PainelAtendimento";
 import type { CrmConversation } from "../sdk/types";
 
 function lerLocal(chave: string, padrao: string) {
@@ -48,26 +50,6 @@ function gravarLocal(chave: string, valor: string) {
 function nomeDaFicha(f: FichaAtivacao) {
   if (f.instagram && (!f.nome || f.nome === "Instagram")) return `@${f.instagram}`;
   return displayName(f.nome ?? "", f.telefone ?? "");
-}
-
-/** Conversa mínima para abrir a ficha na tela de Conversas. */
-function paraConversa(f: FichaAtivacao, connectionId: string | null): CrmConversation {
-  return {
-    id: f.conversationId,
-    connectionId,
-    contact: { id: f.contactId, name: f.nome ?? "", phone: f.telefone ?? "", avatarUrl: null, city: null, unit: null, patientId: null },
-    status: "novo",
-    lastMessage: f.ultimoTexto,
-    lastMessageAt: f.ultimaMsgEm,
-    unread: 0,
-    primaryTag: null,
-    interest: null,
-    assigneeId: f.assigneeId,
-    assigneeName: null,
-    priority: null,
-    isNewLead: false,
-    isPatient: false,
-  };
 }
 
 /** Quadro "Ativar pacientes": fichas em quatro gavetas e, ao abrir uma, conversa + IA + envio. */
@@ -161,6 +143,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
             Conversas do painel {activeConnection?.displayName ?? ""} que pedem retorno, separadas por urgência. O Claude lê a conversa, sugere caminhos e escreve a mensagem; nada sai sem você confirmar.
           </p>
         </div>
+        <PainelAtendimento onOpen={onOpen} />
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           {GAVETAS.map((g) => (
             <span key={g.id} className="text-sm text-muted-foreground">
