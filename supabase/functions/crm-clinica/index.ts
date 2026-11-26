@@ -101,21 +101,37 @@ async function entrar(cfg: Json, segredo: string, forcar = false): Promise<Sessa
     const r = await pedir(cfg, sessao, loginUrl, {
       method: "POST",
       body: form.toString(),
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: loginUrl },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: loginUrl, Origin: new URL(loginUrl).origin },
     });
-    if (r.status >= 400 || pareceTelaDeLogin(r.texto, cfg.campo_senha)) {
-      throw new Error("O sistema da clínica não aceitou o login. Confira o usuário e a senha.");
+    // Login certo = o sistema sai da página de entrada (redireciona). Ficar na
+    // mesma página (ou erro HTTP) = não aceitou; a mensagem do próprio sistema
+    // vai junto para o teste mostrar.
+    const ficouNoLogin = new URL(r.url).pathname === new URL(loginUrl).pathname;
+    if (r.status >= 400 || (ficouNoLogin && pareceTelaDeLogin(r.texto, cfg.campo_senha))) {
+      const aviso = mensagemDoSistema(r.texto);
+      throw new Error(
+        `O sistema da clínica não aceitou o login (resposta ${r.status}${csrf ? "" : ", sem token do formulário"})` +
+        (aviso ? `: "${aviso}"` : ". Confira o usuário e a senha."),
+      );
     }
   }
   sessoes.set(chave, sessao);
   return sessao;
 }
 
+/** Frase de erro que o sistema mostrou na tela de login (ex.: "E-mail ou senha inválidos"). */
+function mensagemDoSistema(html: string) {
+  const texto = htmlParaTexto(html, 20_000);
+  const achado = texto.match(/[^.|]*(inv[aá]lid|incorret|bloquead|n[aã]o confirm|expirad|tentativas)[^.|]*/i);
+  return achado ? achado[0].trim().slice(0, 160) : "";
+}
+
 /** GET com a sessão; se voltar para a tela de login, entra de novo uma vez. */
 async function abrir(cfg: Json, segredo: string, url: string) {
   let sessao = await entrar(cfg, segredo);
   let r = await pedir(cfg, sessao, url);
-  if (cfg.tipo === "login_web" && pareceTelaDeLogin(r.texto, cfg.campo_senha)) {
+  const caiuNoLogin = new URL(r.url).pathname === new URL(montarUrl(cfg.base_url, cfg.login_url, {})).pathname;
+  if (cfg.tipo === "login_web" && caiuNoLogin) {
     sessao = await entrar(cfg, segredo, true);
     r = await pedir(cfg, sessao, url);
   }
