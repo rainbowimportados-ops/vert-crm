@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronsUpDown,
+  LayoutDashboard,
   Megaphone,
   MessageCircleMore,
   MessagesSquare,
@@ -20,6 +21,7 @@ import { canAccessCrmModule } from "../sdk/access";
 import { useInboxCounts } from "../services/conversations";
 
 export type CrmSection =
+  | "central"
   | "inbox"
   | "ativacao"
   | "contacts"
@@ -38,6 +40,14 @@ export interface CrmNavItem {
 }
 
 export const CRM_NAV: CrmNavItem[] = [
+  {
+    // tela inicial: o dia organizado (mesma permissão de Conversas)
+    id: "central",
+    section: "central",
+    module: "conversations",
+    label: "Central",
+    icon: LayoutDashboard,
+  },
   {
     id: "conversations",
     section: "inbox",

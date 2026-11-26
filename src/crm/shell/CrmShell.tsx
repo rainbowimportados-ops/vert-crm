@@ -38,6 +38,9 @@ const ContactsPanel = lazy(() =>
 const LeadsPanel = lazy(() =>
   import("../leads/LeadsPanel").then((m) => ({ default: m.LeadsPanel })),
 );
+const CentralPanel = lazy(() =>
+  import("../central/CentralPanel").then((m) => ({ default: m.CentralPanel })),
+);
 const AtivacaoPanel = lazy(() =>
   import("../ativacao/AtivacaoPanel").then((m) => ({ default: m.AtivacaoPanel })),
 );
@@ -53,6 +56,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
     role,
     activeConnectionId,
     activeConnection,
+    setActiveConnectionId,
   } = useCrmContext();
   useCrmRealtime();
   const connected = activeConnection?.status === "connected";
@@ -77,13 +81,18 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
     }
   }, [active.id, allowedNav]);
 
+  // trocar de caixa fecha a conversa aberta, a não ser que ela seja da caixa nova
+  // (a Central abre conversas de qualquer caixa e troca a caixa junto)
   useEffect(() => {
-    setSelected(null);
+    setSelected((atual) => (atual && atual.connectionId === activeConnectionId ? atual : null));
   }, [activeConnectionId]);
 
   const openConversation = (conversation: CrmConversation) => {
     const item = allowedNav.find((navItem) => navItem.id === "conversations");
     if (!item) return;
+    if (conversation.connectionId && conversation.connectionId !== activeConnectionId) {
+      setActiveConnectionId(conversation.connectionId);
+    }
     setSelected(conversation);
     setActive(item);
   };
@@ -175,6 +184,12 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <Suspense fallback={<SkeletonPage />}>
               <ContactsPanel onOpen={openConversation} />
+            </Suspense>
+          </div>
+        ) : active.section === "central" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Suspense fallback={<SkeletonPage />}>
+              <CentralPanel onOpen={openConversation} onAtivacao={irParaAtivacao} />
             </Suspense>
           </div>
         ) : active.section === "ativacao" ? (

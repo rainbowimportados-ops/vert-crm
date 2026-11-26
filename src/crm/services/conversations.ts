@@ -220,7 +220,7 @@ async function fetchMessages(conversationId: string): Promise<CrmMessage[]> {
   // Com histórico grande (>500), ordem crescente cortava justamente as novas.
   const { data, error } = await supabase
     .from("messages")
-    .select("id, conversation_id, direction, type, content, media_url, delivery_status, message_at")
+    .select("id, conversation_id, direction, type, content, media_url, delivery_status, message_at, transcricao")
     .eq("conversation_id", conversationId)
     .order("message_at", { ascending: false })
     .limit(500);
@@ -234,6 +234,7 @@ async function fetchMessages(conversationId: string): Promise<CrmMessage[]> {
     mediaUrl: m.media_url,
     createdAt: m.message_at,
     deliveryStatus: m.delivery_status,
+    transcricao: m.transcricao ?? null,
   }));
 }
 
