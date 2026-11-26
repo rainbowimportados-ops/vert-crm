@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCrmContext } from "../provider/CrmProvider";
@@ -134,4 +135,42 @@ export function rotuloPrazo(prazo: string | null, hoje = hojeLocal()) {
   if (s === "hoje") return "hoje";
   const [, m, d] = prazo!.split("-");
   return s === "vencido" ? `venceu ${d}/${m}` : `até ${d}/${m}`;
+}
+
+const INTERVALO_LEITURA = 3 * 60_000;
+
+/**
+ * Leitura em tempo real só enquanto alguém usa o CRM: lê ao entrar e, com a
+ * aba visível, a cada 3 minutos. Fora de uso (aba escondida ou CRM fechado)
+ * não lê nada, e ao voltar para a aba lê na hora.
+ */
+export function useLeituraAutomatica() {
+  const qc = useQueryClient();
+  const { organizationId } = useCrmContext();
+  useEffect(() => {
+    if (!organizationId) return;
+    let ultima = 0;
+    let rodando = false;
+    const ler = async () => {
+      if (rodando || document.visibilityState !== "visible" || Date.now() - ultima < INTERVALO_LEITURA - 5_000) return;
+      rodando = true;
+      ultima = Date.now();
+      try {
+        const { data } = await supabase.functions.invoke("crm-central", { body: { acao: "analisar" } });
+        if (data?.lidas) await qc.invalidateQueries({ queryKey: ["crm-central", organizationId] });
+      } catch {
+        /* sem rede ou sem chave: tenta de novo no próximo ciclo */
+      } finally {
+        rodando = false;
+      }
+    };
+    void ler();
+    const id = window.setInterval(() => void ler(), INTERVALO_LEITURA);
+    const aoVoltar = () => void ler();
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+  }, [organizationId, qc]);
 }

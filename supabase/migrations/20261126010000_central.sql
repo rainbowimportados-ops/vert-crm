@@ -203,21 +203,6 @@ as $$
 $$;
 grant execute on function public.crm_central() to authenticated;
 
--- 6) Leitura automática a cada 20 min (só conversas com mensagem nova).
-select cron.unschedule('crm-central-analisar') where exists (select 1 from cron.job where jobname = 'crm-central-analisar');
-select cron.schedule(
-  'crm-central-analisar',
-  '4,24,44 * * * *',
-  $job$
-  select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/crm-central',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'publishable_key'),
-      'x-sync-token', public.crm_zernio_sync_token()
-    ),
-    body := '{"acao":"analisar"}'::jsonb,
-    timeout_milliseconds := 150000
-  );
-  $job$
-);
+-- 6) Sem agendamento no servidor: a leitura roda enquanto alguém está com o
+-- CRM aberto (ao entrar e a cada 3 min com a aba visível), pela edge function
+-- crm-central com o login de quem está usando.

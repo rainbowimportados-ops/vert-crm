@@ -10,6 +10,7 @@ import {
 } from "./CrmSidebar";
 import { ConversationQueue } from "../inbox/ConversationQueue";
 import { PanoramaBar } from "./PanoramaBar";
+import { useLeituraAutomatica } from "../services/central";
 import { ConversationPanel } from "../conversation/ConversationPanel";
 import { useCrmContext } from "../provider/CrmProvider";
 import { useCrmRealtime } from "../services/conversations";
@@ -59,6 +60,7 @@ export function CrmShell({ onExit }: { onExit?: () => void }) {
     setActiveConnectionId,
   } = useCrmContext();
   useCrmRealtime();
+  useLeituraAutomatica();
   const connected = activeConnection?.status === "connected";
   const allowedNav = useMemo(
     () =>
