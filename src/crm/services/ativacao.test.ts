@@ -23,6 +23,9 @@ const ficha = (p: Partial<FichaAtivacao>): FichaAtivacao => ({
   leadOrigem: null,
   resumo: null,
   clinica: null,
+  connectionId: "k1",
+  origem: "direto",
+  tags: [],
   ...p,
 });
 

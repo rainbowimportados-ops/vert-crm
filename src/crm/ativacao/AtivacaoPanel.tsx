@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, Loader2, MessageSquare, Search, Send, Sparkles, X } from "lucide-react";
+import { Check, CheckSquare, Columns3, Copy, Download, ExternalLink, List, Loader2, MessageSquare, Search, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCrmContext } from "../provider/CrmProvider";
@@ -27,7 +27,11 @@ import {
   type TipoMensagem,
 } from "../services/ativacao";
 import { ROTEIRO_PADRAO, TIPOS, lerRoteiros, salvarRoteiros } from "./roteiros";
-import { displayName, maskPhone } from "../sdk/phone";
+import { maskPhone } from "../sdk/phone";
+import { useAssignableUsers } from "../services/atendimento";
+import { FILTROS_VAZIOS, aplicarFiltros, ordenar, paraCsv, type FiltrosAtivacao, type Ordem } from "../services/ativacaoFiltros";
+import { baixarArquivo } from "../services/ativacaoMassa";
+import { BarraEmMassa, BarraFiltros, FilaMensagens, ListaFichas, ResumoFiltros, nomeDaFicha } from "./Organizador";
 import { OrcamentosClinica } from "../clinica/OrcamentosClinica";
 import { reaisCurto, useSistemaClinica } from "../services/clinica";
 import type { CrmConversation } from "../sdk/types";
@@ -47,16 +51,11 @@ function gravarLocal(chave: string, valor: string) {
   }
 }
 
-function nomeDaFicha(f: FichaAtivacao) {
-  if (f.instagram && (!f.nome || f.nome === "Instagram")) return `@${f.instagram}`;
-  return displayName(f.nome ?? "", f.telefone ?? "");
-}
-
 /** Conversa mínima para abrir a ficha na tela de Conversas. */
 function paraConversa(f: FichaAtivacao, connectionId: string | null): CrmConversation {
   return {
     id: f.conversationId,
-    connectionId,
+    connectionId: f.connectionId ?? connectionId,
     contact: { id: f.contactId, name: f.nome ?? "", phone: f.telefone ?? "", avatarUrl: null, city: null, unit: null, patientId: null },
     status: "novo",
     lastMessage: f.ultimoTexto,
@@ -74,39 +73,91 @@ function paraConversa(f: FichaAtivacao, connectionId: string | null): CrmConvers
 
 /** Quadro "Ativar pacientes": fichas em quatro gavetas e, ao abrir uma, conversa + IA + envio. */
 export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversation) => void }) {
-  const { data: fichas, isLoading, error } = useAtivacaoLista();
-  const { activeConnectionId, activeConnection } = useCrmContext();
+  const [todasCaixas, setTodasCaixas] = useState(() => lerLocal("vert-crm-ativacao-caixas", "caixa") === "todas");
+  const { data: fichas, isLoading, error } = useAtivacaoLista(todasCaixas);
+  const { activeConnectionId, activeConnection, connections } = useCrmContext();
+  const { data: usuarios = [] } = useAssignableUsers();
   const [busca, setBusca] = useState("");
   const [ocultar, setOcultar] = useState(true);
   const [gavetaMobile, setGavetaMobile] = useState<Gaveta>("hoje");
   const [aberta, setAberta] = useState<FichaAtivacao | null>(null);
+  const [visao, setVisao] = useState<"quadro" | "lista">(() => (lerLocal("vert-crm-ativacao-visao", "quadro") === "lista" ? "lista" : "quadro"));
+  const [filtros, setFiltros] = useState<FiltrosAtivacao>(FILTROS_VAZIOS);
+  const [ordem, setOrdem] = useState<Ordem>("urgencia");
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
+  const [selecionando, setSelecionando] = useState(false);
+  const [fila, setFila] = useState<FichaAtivacao[] | null>(null);
   const { data: sistema } = useSistemaClinica();
   const nomeSistema = sistema?.nome ?? "sistema";
 
-  const porGaveta = useMemo(() => {
-    const out: Record<Gaveta, FichaAtivacao[]> = { hoje: [], parado: [], follow: [], manut: [] };
+  useEffect(() => { gravarLocal("vert-crm-ativacao-caixas", todasCaixas ? "todas" : "caixa"); }, [todasCaixas]);
+  useEffect(() => { gravarLocal("vert-crm-ativacao-visao", visao); }, [visao]);
+
+  // base do quadro: só conversas que caem numa gaveta, com busca e filtros aplicados
+  const daGaveta = useMemo(() => (fichas ?? []).filter((f) => gavetaDe(f) && !(ocultar && estaResolvida(f))), [fichas, ocultar]);
+  const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
     const digitos = q.replace(/\D/g, "");
-    (fichas ?? []).forEach((f) => {
-      const g = gavetaDe(f);
-      if (!g) return;
-      if (ocultar && estaResolvida(f)) return;
-      if (q) {
-        const alvo = [
-          f.nome, f.instagram, f.ultimoTexto, f.resumo?.resumo, f.resumo?.proximo,
-          etiquetasDe(f, nomeSistema).map((e) => e.texto).join(" "),
-        ].join(" ").toLowerCase();
-        if (!alvo.includes(q) && !(digitos && (f.telefone ?? "").includes(digitos))) return;
-      }
-      out[g].push(f);
+    const porBusca = !q ? daGaveta : daGaveta.filter((f) => {
+      const alvo = [
+        f.nome, f.instagram, f.ultimoTexto, f.resumo?.resumo, f.resumo?.proximo,
+        etiquetasDe(f, nomeSistema, 99).map((e) => e.texto).join(" "),
+      ].join(" ").toLowerCase();
+      return alvo.includes(q) || (!!digitos && (f.telefone ?? "").includes(digitos));
     });
+    return ordenar(aplicarFiltros(porBusca, filtros, { nomeSistema }), ordem);
+  }, [daGaveta, busca, filtros, ordem, nomeSistema]);
+
+  const porGaveta = useMemo(() => {
+    const out: Record<Gaveta, FichaAtivacao[]> = { hoje: [], parado: [], follow: [], manut: [] };
+    filtradas.forEach((f) => out[gavetaDe(f)!].push(f));
+    if (ordem !== "urgencia") return out;
     // mais urgente primeiro: quem espera há mais tempo nas gavetas do paciente, o mais recente no resto
     out.hoje.sort((a, b) => a.ultimaMsgEm.localeCompare(b.ultimaMsgEm));
     out.parado.sort((a, b) => b.ultimaMsgEm.localeCompare(a.ultimaMsgEm));
     out.follow.sort((a, b) => b.ultimaMsgEm.localeCompare(a.ultimaMsgEm));
     out.manut.sort((a, b) => b.ultimaMsgEm.localeCompare(a.ultimaMsgEm));
     return out;
-  }, [fichas, busca, ocultar, nomeSistema]);
+  }, [filtradas, ordem]);
+
+  // seleção: some quem saiu da lista (filtro, resolvido, recarga)
+  useEffect(() => {
+    setSelecionadas((s) => {
+      if (!s.size) return s;
+      const visiveis = new Set(filtradas.map((f) => f.conversationId));
+      const nova = new Set([...s].filter((id) => visiveis.has(id)));
+      return nova.size === s.size ? s : nova;
+    });
+  }, [filtradas]);
+  const fichasSelecionadas = useMemo(() => filtradas.filter((f) => selecionadas.has(f.conversationId)), [filtradas, selecionadas]);
+  const alternarSelecao = (id: string) =>
+    setSelecionadas((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const alternarTodas = () =>
+    setSelecionadas((s) => (filtradas.every((f) => s.has(f.conversationId)) ? new Set() : new Set(filtradas.map((f) => f.conversationId))));
+  const limparSelecao = () => {
+    setSelecionadas(new Set());
+    setSelecionando(false);
+  };
+
+  const nomeResponsavel = (id: string | null) => (id ? usuarios.find((u) => u.id === id)?.name ?? "" : "");
+  const caixaDe = (id: string | null) => connections.find((c) => c.id === id);
+  const oficialDe = (f: FichaAtivacao) => {
+    const c = caixaDe(f.connectionId) ?? activeConnection;
+    return c?.provider === "zernio" && (c?.channel ?? "whatsapp") === "whatsapp";
+  };
+  const exportar = (lista: FichaAtivacao[]) => {
+    const csv = paraCsv(lista, {
+      nomeSistema,
+      nomeResponsavel,
+      tituloGaveta: (g) => GAVETAS.find((x) => x.id === g)?.titulo ?? "",
+    });
+    baixarArquivo(`ativar-pacientes-${new Date().toLocaleDateString("en-CA")}.csv`, csv);
+  };
 
   // mantém a ficha aberta em dia quando a lista recarrega
   useEffect(() => {
@@ -115,7 +166,6 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
     if (nova && nova !== aberta) setAberta(nova);
   }, [fichas, aberta]);
 
-  const oficial = activeConnection?.provider === "zernio" && (activeConnection?.channel ?? "whatsapp") === "whatsapp";
   const totalAguardando = useMemo(
     () => Object.values(porGaveta).flat().filter((f) => !estaResolvida(f)).reduce((t, f) => t + (f.clinica?.aguardando ?? 0), 0),
     [porGaveta],
@@ -166,7 +216,7 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Ativar pacientes</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Conversas do painel {activeConnection?.displayName ?? ""} que pedem retorno, separadas por urgência. O Claude lê a conversa, sugere caminhos e escreve a mensagem; nada sai sem você confirmar.
+            Conversas {todasCaixas ? "de todas as caixas" : `do painel ${activeConnection?.displayName ?? ""}`} que pedem retorno, separadas por urgência. O Claude lê a conversa, sugere caminhos e escreve a mensagem; nada sai sem você confirmar.
           </p>
         </div>
         <div className="flex flex-wrap gap-x-6 gap-y-1">
@@ -194,13 +244,61 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
               className="h-10 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm outline-none focus:border-primary"
             />
           </div>
+          {connections.length > 1 && (
+            <div className="inline-flex rounded-lg border border-border p-0.5 text-xs" role="group" aria-label="Caixas">
+              <button onClick={() => setTodasCaixas(false)} aria-pressed={!todasCaixas} className={cn("rounded-md px-2.5 py-1.5", !todasCaixas ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Esta caixa
+              </button>
+              <button onClick={() => setTodasCaixas(true)} aria-pressed={todasCaixas} className={cn("rounded-md px-2.5 py-1.5", todasCaixas ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Todas as caixas
+              </button>
+            </div>
+          )}
+          <div className="inline-flex rounded-lg border border-border p-0.5 text-xs" role="group" aria-label="Visão">
+            <button onClick={() => setVisao("quadro")} aria-pressed={visao === "quadro"} className={cn("inline-flex items-center gap-1 rounded-md px-2.5 py-1.5", visao === "quadro" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+              <Columns3 className="h-3.5 w-3.5" /> Quadro
+            </button>
+            <button onClick={() => setVisao("lista")} aria-pressed={visao === "lista"} className={cn("inline-flex items-center gap-1 rounded-md px-2.5 py-1.5", visao === "lista" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+              <List className="h-3.5 w-3.5" /> Lista
+            </button>
+          </div>
+          {visao === "quadro" && (
+            <button
+              onClick={() => (selecionando ? limparSelecao() : setSelecionando(true))}
+              aria-pressed={selecionando}
+              className={cn("inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium", selecionando ? "border-primary text-foreground" : "border-border text-muted-foreground hover:border-primary")}
+            >
+              <CheckSquare className="h-3.5 w-3.5" /> {selecionando ? "Sair da seleção" : "Selecionar"}
+            </button>
+          )}
+          <button onClick={() => exportar(filtradas)} disabled={!filtradas.length} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:border-primary disabled:opacity-40" title="Baixa a lista filtrada em planilha">
+            <Download className="h-3.5 w-3.5" /> CSV
+          </button>
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" checked={ocultar} onChange={(e) => setOcultar(e.target.checked)} />
             Ocultar resolvidos
           </label>
         </div>
+        <BarraFiltros fichas={daGaveta} filtros={filtros} onFiltros={setFiltros} ordem={ordem} onOrdem={setOrdem} nomeSistema={nomeSistema} usuarios={usuarios} />
+        <ResumoFiltros filtros={filtros} onFiltros={setFiltros} usuarios={usuarios} />
+        {filtradas.length !== daGaveta.length && (
+          <p className="text-xs text-muted-foreground">
+            Mostrando <b className="text-foreground">{filtradas.length}</b> de {daGaveta.length} conversas.
+          </p>
+        )}
         {avisoResumo && <p className="text-xs text-destructive">Resumos do Claude: {avisoResumo}</p>}
-        <div className="flex gap-2 overflow-x-auto md:hidden">
+        {selecionadas.size > 0 && (
+          <BarraEmMassa
+            selecionadas={fichasSelecionadas}
+            totalFiltradas={filtradas.length}
+            onSelecionarFiltradas={() => setSelecionadas(new Set(filtradas.map((f) => f.conversationId)))}
+            onLimpar={limparSelecao}
+            onFila={() => setFila(fichasSelecionadas.filter((f) => !estaResolvida(f)))}
+            onExportar={() => exportar(fichasSelecionadas)}
+            usuarios={usuarios}
+          />
+        )}
+        <div className={cn("flex gap-2 overflow-x-auto md:hidden", visao === "lista" && "hidden")}>
           {GAVETAS.map((g) => (
             <button
               key={g.id}
@@ -221,6 +319,16 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
         <div className="flex min-h-52 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
       ) : error ? (
         <p className="text-sm text-destructive">Não foi possível carregar as conversas.</p>
+      ) : visao === "lista" ? (
+        <ListaFichas
+          fichas={filtradas}
+          selecionadas={selecionadas}
+          onAlternar={alternarSelecao}
+          onAlternarTodas={alternarTodas}
+          onAbrir={setAberta}
+          nomeResponsavel={nomeResponsavel}
+          nomeCaixa={todasCaixas ? (id) => caixaDe(id)?.displayName ?? "" : null}
+        />
       ) : (
         <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
           {GAVETAS.map((g) => (
@@ -245,6 +353,9 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
                       resumindo={resumindo === g.id && !resumoEmDia(f) && pedidos.current.has(f.conversationId)}
                       nomeSistema={nomeSistema}
                       onAbrir={() => setAberta(f)}
+                      selecionavel={selecionando || selecionadas.size > 0}
+                      selecionada={selecionadas.has(f.conversationId)}
+                      onSelecionar={() => alternarSelecao(f.conversationId)}
                     />
                   ))
                 )}
@@ -261,9 +372,19 @@ export function AtivacaoPanel({ onOpen }: { onOpen: (conversation: CrmConversati
         <PainelFicha
           key={aberta.conversationId}
           ficha={aberta}
-          oficial={oficial}
+          oficial={oficialDe(aberta)}
           onFechar={() => setAberta(null)}
           onAbrirConversa={() => onOpen(paraConversa(aberta, activeConnectionId))}
+        />
+      )}
+      {fila && (
+        <FilaMensagens
+          fichas={fila}
+          oficialDe={oficialDe}
+          onFechar={() => {
+            setFila(null);
+            limparSelecao();
+          }}
         />
       )}
     </div>
@@ -313,12 +434,18 @@ function FichaCard({
   resumindo,
   nomeSistema,
   onAbrir,
+  selecionavel = false,
+  selecionada = false,
+  onSelecionar,
 }: {
   ficha: FichaAtivacao;
   gaveta: Gaveta;
   resumindo: boolean;
   nomeSistema: string;
   onAbrir: () => void;
+  selecionavel?: boolean;
+  selecionada?: boolean;
+  onSelecionar?: () => void;
 }) {
   const resolvida = estaResolvida(f);
   const urgente = gaveta === "parado" || (gaveta === "hoje" && Date.now() - new Date(f.ultimaMsgEm).getTime() > 12 * 3600_000);
@@ -327,9 +454,22 @@ function FichaCard({
   const resumo = f.resumo;
   const desatualizado = !!resumo && !resumoEmDia(f);
   return (
-    <article className={cn("rounded-xl border border-border bg-card p-3", resolvida && "opacity-50")}>
+    <article
+      className={cn("rounded-xl border bg-card p-3", selecionada ? "border-primary ring-1 ring-primary" : "border-border", resolvida && "opacity-50", selecionavel && "cursor-pointer")}
+      onClick={selecionavel ? onSelecionar : undefined}
+    >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        {selecionavel && (
+          <input
+            type="checkbox"
+            checked={selecionada}
+            onChange={onSelecionar}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Selecionar ${nomeDaFicha(f)}`}
+            className="mt-1 flex-none"
+          />
+        )}
+        <div className="min-w-0 flex-1">
           <strong className="block truncate text-sm font-semibold">{nomeDaFicha(f)}</strong>
           <span className="block truncate text-xs text-muted-foreground">
             {f.telefone ? maskPhone(f.telefone) : f.instagram ? "Instagram" : ""}
@@ -369,7 +509,13 @@ function FichaCard({
         </div>
       )}
       <div className="mt-2 flex items-center gap-2">
-        <button onClick={onAbrir} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium hover:border-primary">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAbrir();
+          }}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium hover:border-primary"
+        >
           <Sparkles className="h-3.5 w-3.5 text-primary" /> Abrir ficha
         </button>
         {resolvida && <span className="ml-auto text-[11px] text-success">resolvido</span>}

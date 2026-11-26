@@ -37,6 +37,12 @@ export interface FichaAtivacao {
   resumo: ResumoCartao | null;
   /** O que foi lido do sistema da clínica (Santé ou outro); null = ainda não lido. */
   clinica: { status: "ok" | "nao_encontrado" | "erro"; aguardando: number; aprovado: number; url: string | null } | null;
+  /** Caixa de entrada da conversa (o quadro pode mostrar todas). */
+  connectionId: string | null;
+  /** Origem do lead: google_ads, meta_ads, instagram, site ou direto. */
+  origem: string;
+  /** Etiquetas colocadas à mão no contato. */
+  tags: string[];
 }
 
 export interface ResumoCartao {
@@ -82,7 +88,7 @@ const RECLAMACAO = /n[ãa]o (ficou|tinha ficado) bo[am]|reclama|insatisfeit|inco
  * Etiquetas do cartão: as calculadas pelo CRM (lead, áudio, sinais no texto do
  * paciente) somadas às que o Claude deu no resumo, sem repetir.
  */
-export function etiquetasDe(f: FichaAtivacao, nomeSistema = "sistema"): Etiqueta[] {
+export function etiquetasDe(f: FichaAtivacao, nomeSistema = "sistema", limite = 5): Etiqueta[] {
   const out: Etiqueta[] = [];
   const add = (texto: string, tom: TomEtiqueta) => {
     if (!out.some((e) => e.texto === texto)) out.push({ texto, tom });
@@ -93,6 +99,7 @@ export function etiquetasDe(f: FichaAtivacao, nomeSistema = "sistema"): Etiqueta
   if (f.clinica?.status === "ok") add(`no ${nomeSistema}`, "bom");
   if (f.clinica?.aguardando) add(`${(f.clinica.aguardando).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} aguardando`, "valor");
   else if (f.clinica?.status === "nao_encontrado") add("lead novo", "neutro");
+  for (const t of f.tags ?? []) add(t, "neutro");
   if (f.audioSemResposta) add("ouvir áudio", "neutro");
   // sinais na última mensagem do paciente
   if (RECLAMACAO.test(f.textoPaciente)) add("risco de reclamação", "risco");
@@ -102,7 +109,7 @@ export function etiquetasDe(f: FichaAtivacao, nomeSistema = "sistema"): Etiqueta
     add(e, /risco/.test(e) ? "risco" : /fechar|agendad/.test(e) ? "bom" : "neutro");
   }
   if (f.resumo?.valor) add(f.resumo.valor, "valor");
-  return out.slice(0, 5);
+  return out.slice(0, limite);
 }
 
 /** Janela de 24 h da API oficial do WhatsApp, a partir da última mensagem do paciente. */
@@ -122,14 +129,15 @@ export function tempoDeEspera(iso: string, agora = Date.now()) {
   return d === 1 ? "1 dia" : `${d} dias`;
 }
 
-export function useAtivacaoLista() {
+/** Fichas do quadro: da caixa ativa ou, com `todasAsCaixas`, de todas as caixas que a pessoa vê. */
+export function useAtivacaoLista(todasAsCaixas = false) {
   const { activeConnectionId } = useCrmContext();
   return useQuery({
-    queryKey: ["crm-ativacao", activeConnectionId],
+    queryKey: ["crm-ativacao", activeConnectionId, todasAsCaixas ? "todas" : "caixa"],
     enabled: !!activeConnectionId,
     staleTime: 30_000,
     queryFn: async (): Promise<FichaAtivacao[]> => {
-      const { data, error } = await supabase.rpc("crm_ativacao_lista" as never, { _connection: activeConnectionId } as never);
+      const { data, error } = await supabase.rpc("crm_ativacao_lista" as never, { _connection: todasAsCaixas ? null : activeConnectionId } as never);
       if (error) throw error;
       return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
         conversationId: r.conversation_id as string,
@@ -165,6 +173,9 @@ export function useAtivacaoLista() {
               url: (r.clinica_url as string) ?? null,
             }
           : null,
+        connectionId: (r.connection_id as string) ?? null,
+        origem: (r.origem as string) ?? "direto",
+        tags: (r.tags as string[]) ?? [],
       }));
     },
   });
@@ -282,5 +293,8 @@ export function fichaDaConversa(
     leadOrigem: null,
     resumo: null,
     clinica: null,
+    connectionId: c.connectionId ?? null,
+    origem: "direto",
+    tags: [],
   };
 }

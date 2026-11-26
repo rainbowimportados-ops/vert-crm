@@ -16,7 +16,7 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.13.0/helpers/zod";
 import { z } from "npm:zod@4.6.7";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  cabecalhoCookie, extrairCsrf, extrairIds, guardarCookies, htmlParaTexto, idDoLink,
+  cabecalhoCookie, camposParaJson, estruturaDaPagina, extrairCsrf, extrairIds, guardarCookies, htmlParaTexto, idDoLink,
   montarUrl, pareceTelaDeLogin, somarOrcamentos, variantesTelefone, type Orcamento,
 } from "./lib.ts";
 
@@ -25,7 +25,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MODELO = "claude-opus-5-5";
 const VALIDADE_MS = 6 * 3600_000; // ficha lida há menos de 6 h vale
-const NAVEGADOR = "Mozilla/5.0 (compatible; VertCRM/1.0)";
+const NAVEGADOR = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +65,7 @@ async function pedir(cfg: Json, sessao: Sessao, url: string, init: RequestInit =
   for (let i = 0; i < 6; i += 1) {
     const headers = new Headers(init.headers);
     headers.set("User-Agent", NAVEGADOR);
-    headers.set("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
+    if (!headers.has("Accept")) headers.set("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
     if (sessao.jar.size) headers.set("Cookie", cabecalhoCookie(sessao.jar));
     if (cfg.tipo === "api_token" && sessao.token) headers.set("Authorization", `Bearer ${sessao.token}`);
     resp = await fetch(atual, { method: metodo, body: corpo, headers, redirect: "manual" });
@@ -98,11 +98,46 @@ async function entrar(cfg: Json, segredo: string, forcar = false): Promise<Sessa
     if (csrf) form.set(csrf.campo, csrf.valor);
     form.set(cfg.campo_usuario, cfg.usuario ?? "");
     form.set(cfg.campo_senha, segredo);
-    const r = await pedir(cfg, sessao, loginUrl, {
-      method: "POST",
-      body: form.toString(),
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: loginUrl, Origin: new URL(loginUrl).origin },
-    });
+    const cabecalhos = { Referer: loginUrl, Origin: new URL(loginUrl).origin };
+    // Sem token no formulário (ex.: Santé), o próprio app entra em JSON: vai
+    // direto por esse caminho. Com token, tenta o formulário e cai no JSON se
+    // o sistema recusar (403/422).
+    let r = csrf
+      ? await pedir(cfg, sessao, loginUrl, {
+        method: "POST",
+        body: form.toString(),
+        headers: { ...cabecalhos, "Content-Type": "application/x-www-form-urlencoded" },
+      })
+      : { status: 403, url: loginUrl, texto: "", tipo: "" };
+    if (r.status === 403 || r.status === 422) {
+      if (csrf) {
+        // sessão limpa: a tentativa pelo formulário estraga a sessão para o JSON
+        sessao.jar = new Map();
+        await pedir(cfg, sessao, loginUrl);
+      }
+      r = await pedir(cfg, sessao, loginUrl, {
+        method: "POST",
+        body: JSON.stringify(camposParaJson([[cfg.campo_usuario, cfg.usuario ?? ""], [cfg.campo_senha, segredo]])),
+        headers: { ...cabecalhos, "Content-Type": "application/json", Accept: "application/json" },
+      });
+      // 406 = entrou, mas a página seguinte não responde em JSON (Santé)
+      const entrou = r.status < 300 || r.status === 406 || (r.status < 400 && new URL(r.url).pathname !== new URL(loginUrl).pathname);
+      if (entrou) {
+        const confere = await pedir(cfg, sessao, montarUrl(cfg.base_url, "/", {}));
+        if (new URL(confere.url).pathname === new URL(loginUrl).pathname) {
+          throw new Error("O sistema aceitou o login mas não manteve a sessão aberta.");
+        }
+        sessoes.set(chave, sessao);
+        return sessao;
+      }
+      let aviso = "";
+      try {
+        aviso = String(JSON.parse(r.texto)?.error ?? "");
+      } catch {
+        aviso = mensagemDoSistema(r.texto);
+      }
+      throw new Error(`O sistema da clínica não aceitou o login (resposta ${r.status})${aviso ? `: "${aviso.slice(0, 160)}"` : ". Confira o usuário e a senha."}`);
+    }
     // Login certo = o sistema sai da página de entrada (redireciona). Ficar na
     // mesma página (ou erro HTTP) = não aceitou; a mensagem do próprio sistema
     // vai junto para o teste mostrar.
@@ -267,10 +302,45 @@ const CAMPOS_CONFIG = [
  * ligado, lê alguns contatos com conversa recente que ainda não têm ficha (ou
  * têm ficha velha). Assim o painel sabe quem é paciente e quem é para conquistar.
  */
-async function lote(token: string) {
+/**
+ * Reconhecimento de uma página do sistema (só com o token interno): devolve a
+ * estrutura (endereços de dados, scripts, colunas), nunca o conteúdo, para
+ * configurar leituras novas como a agenda do dia.
+ */
+async function espiar(caminho: string) {
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: sistemas } = await admin.from("crm_clinic_systems").select("*").eq("ativo", true).eq("segredo_salvo", true).limit(1);
+  const cfg = sistemas?.[0];
+  if (!cfg) return json({ error: "Nenhum sistema da clínica ligado." }, 200);
+  const { data: segredo } = await admin.rpc("crm_clinica_segredo", { _org: cfg.organization_id });
+  if (typeof segredo !== "string" || !segredo) return json({ error: "Sem senha salva." }, 200);
+  const url = montarUrl(cfg.base_url, caminho.startsWith("/") ? caminho : `/${caminho}`, {});
+  if (new URL(url).origin !== new URL(cfg.base_url).origin) return json({ error: "Endereço fora do sistema." }, 400);
+  try {
+    const r = await abrir(cfg, segredo, url);
+    const ehJson = r.tipo.includes("json");
+    let chaves: string[] = [];
+    if (ehJson) {
+      try {
+        const dados = JSON.parse(r.texto);
+        const amostra = Array.isArray(dados) ? dados[0] : dados;
+        chaves = amostra && typeof amostra === "object" ? Object.keys(amostra).slice(0, 60) : [];
+      } catch { /* não era JSON de verdade */ }
+    }
+    return json({
+      ok: true, status: r.status, final: new URL(r.url).pathname, tipo: r.tipo, tamanho: r.texto.length,
+      ...(ehJson ? { chaves, itens: (() => { try { const d = JSON.parse(r.texto); return Array.isArray(d) ? d.length : null; } catch { return null; } })() } : estruturaDaPagina(r.texto)),
+    });
+  } catch (e) {
+    return json({ error: String((e as Error)?.message ?? e) }, 200);
+  }
+}
+
+async function lote(token: string, body: Json = {}) {
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
   const { data: esperado } = await admin.rpc("crm_zernio_sync_token");
   if (typeof esperado !== "string" || !esperado || token !== esperado) return json({ error: "não autorizado" }, 401);
+  if (body.acao === "espiar") return espiar(String(body.caminho ?? "/"));
   const limite = Date.now() + 110_000;
   const { data: sistemas } = await admin.from("crm_clinic_systems").select("*").eq("ativo", true).eq("segredo_salvo", true);
   const resultado: Json[] = [];
@@ -297,7 +367,7 @@ async function lote(token: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   const tokenCron = req.headers.get("x-sync-token");
-  if (tokenCron) return lote(tokenCron);
+  if (tokenCron) return lote(tokenCron, await req.clone().json().catch(() => ({})));
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth) return json({ error: "Não autenticado." }, 401);
 
