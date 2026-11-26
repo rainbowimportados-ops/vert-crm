@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarClock, Check, Loader2, MessageCircle, RefreshCw, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, CalendarClock, Check, Clapperboard, Loader2, MessageCircle, RefreshCw, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -8,7 +8,7 @@ import { horaDaLista } from "../sdk/datas";
 import type { CrmConversation } from "../sdk/types";
 import { ROTULO_ORIGEM, type Origem } from "../services/panorama";
 import {
-  rotuloPrazo, saudacao, situacaoPrazo, useAcoesCentral, useCentral,
+  rotuloPrazo, saudacao, situacaoPrazo, useAcoesCentral, useCentral, useResumoDoDia,
   type Compromisso, type ItemConversa,
 } from "../services/central";
 
@@ -46,6 +46,24 @@ function Inicial({ nome }: { nome: string }) {
   );
 }
 
+/** ✓ de um item do plano: responde na hora e grava em seguida. */
+function CaixaFeito({ feito, rotulo, onMudar }: { feito: boolean; rotulo: string; onMudar: (v: boolean) => void }) {
+  const [marcado, setMarcado] = useState(feito);
+  useEffect(() => setMarcado(feito), [feito]);
+  return (
+    <input
+      type="checkbox"
+      checked={marcado}
+      onChange={(e) => {
+        setMarcado(e.target.checked);
+        onMudar(e.target.checked);
+      }}
+      aria-label={rotulo}
+      className="mt-1 h-4 w-4 shrink-0 accent-primary"
+    />
+  );
+}
+
 type LinhaConversa = ItemConversa & {
   proximo?: string | null;
   resumo?: string | null;
@@ -67,6 +85,8 @@ export function CentralPanel({
   onAtivacao?: () => void;
 }) {
   const { data: c, isLoading, error } = useCentral();
+  const resumo = useResumoDoDia();
+  const [refazendo, setRefazendo] = useState(false);
   const acoes = useAcoesCentral();
   const { fullName } = useAuth();
   const { toast } = useToast();
@@ -285,6 +305,79 @@ export function CentralPanel({
         </div>
       </section>
 
+      <section aria-label="Plano do dia" className="mt-4 rounded-2xl border border-border bg-card p-4 md:p-5">
+        <div className="flex items-start gap-3">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">Plano do dia</h2>
+              {resumo.data && (
+                <span className="text-[11px] text-muted-foreground">
+                  feito às {new Date(resumo.data.gerado_em).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}
+                  {" · "}{resumo.data.plano.filter((p) => p.feito).length} de {resumo.data.plano.length} feitos
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  setRefazendo(true);
+                  try {
+                    await resumo.atualizar();
+                  } catch (e) {
+                    toast({ title: "Não atualizou o plano", description: e instanceof Error ? e.message : undefined, variant: "destructive" });
+                  } finally {
+                    setRefazendo(false);
+                  }
+                }}
+                disabled={refazendo || resumo.isLoading}
+                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+              >
+                {refazendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Atualizar plano
+              </button>
+            </div>
+            {resumo.isLoading || refazendo ? (
+              <p className="mt-2 text-sm text-muted-foreground">O Claude está montando o seu dia…</p>
+            ) : resumo.error ? (
+              <p className="mt-2 text-sm text-muted-foreground">{resumo.error instanceof Error ? resumo.error.message : "O plano do dia não saiu agora."}</p>
+            ) : resumo.data ? (
+              <>
+                <p className="mt-1 text-[15px] leading-snug">{resumo.data.foco}</p>
+                <ol className="mt-3 space-y-1.5">
+                  {resumo.data.plano.map((p, i) => {
+                    const alvo = p.conversation_id
+                      ? c.prioridade.find((x) => x.conversation_id === p.conversation_id)
+                        ?? c.sem_dono.find((x) => x.conversation_id === p.conversation_id)
+                      : undefined;
+                    const compromisso = !alvo && p.conversation_id ? c.compromissos.find((k) => k.conversation_id === p.conversation_id) : undefined;
+                    const abrir = alvo
+                      ? () => onOpen(paraConversa(alvo))
+                      : compromisso
+                        ? () => onOpen(paraConversa({ ...compromisso, ult_texto: compromisso.texto, ult_em: compromisso.origem_em ?? new Date().toISOString() }))
+                        : undefined;
+                    return (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <CaixaFeito
+                          feito={p.feito}
+                          rotulo={`Feito: ${p.acao}`}
+                          onMudar={(v) => resumo.marcar(i, v).catch(() => toast({ title: "Não deu para marcar agora", variant: "destructive" }))}
+                        />
+                        <span className={cn("min-w-0 flex-1 text-sm", p.feito && "text-muted-foreground line-through")}>
+                          {abrir ? (
+                            <button onClick={abrir} className="text-left font-medium hover:text-primary hover:underline">{p.acao}</button>
+                          ) : (
+                            <span className="font-medium">{p.acao}</span>
+                          )}
+                          {p.motivo && <span className="block text-xs text-muted-foreground">{p.motivo}</span>}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
       <div className="mt-5">
         <p className="mb-2 text-xs text-muted-foreground">
           Seu dia · <b className="text-foreground">{emDia} de {pilulas.length}</b> em dia
@@ -337,6 +430,24 @@ export function CentralPanel({
             <p className="mt-2 text-xs text-muted-foreground">
               As consultas do dia vêm do Santé assim que o login estiver salvo e testado em Configurações → Sistema da clínica.
             </p>
+          </section>
+          <section className="rounded-2xl border border-border bg-card p-4" aria-label="Sugestões para gravar hoje">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold"><Clapperboard className="h-4 w-4 text-primary" /> Sugestões para gravar hoje</h2>
+            {resumo.data?.ideias.length ? (
+              <ul className="mt-2 space-y-3">
+                {resumo.data.ideias.map((ideia, i) => (
+                  <li key={i}>
+                    <p className="text-sm font-medium leading-snug">{ideia.titulo}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{ideia.roteiro}</p>
+                    {ideia.frase && <p className="mt-1 text-[11px] italic text-muted-foreground">Veio do WhatsApp: “{ideia.frase}”</p>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {resumo.isLoading ? "Procurando as dúvidas que mais aparecem…" : "Sem dúvidas repetidas nos últimos dias."}
+              </p>
+            )}
           </section>
           <section className="rounded-2xl border border-border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold"><MessageCircle className="h-4 w-4 text-primary" /> Equipe</h2>

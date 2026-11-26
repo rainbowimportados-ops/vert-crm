@@ -174,3 +174,76 @@ export function useLeituraAutomatica() {
     };
   }, [organizationId, qc]);
 }
+
+export interface ItemPlano {
+  acao: string;
+  motivo: string;
+  conversation_id: string;
+  feito: boolean;
+}
+
+export interface IdeiaConteudo {
+  titulo: string;
+  roteiro: string;
+  frase: string;
+}
+
+export interface ResumoDia {
+  organization_id: string;
+  dia: string;
+  foco: string;
+  plano: ItemPlano[];
+  ideias: IdeiaConteudo[];
+  gerado_em: string;
+}
+
+/**
+ * Resumo e plano do dia + ideias de conteúdo. Se ainda não existe o de hoje,
+ * pede para o Claude montar (primeira abertura do CRM no dia).
+ */
+export function useResumoDoDia() {
+  const { organizationId } = useCrmContext();
+  const qc = useQueryClient();
+  const chave = ["crm-central-resumo", organizationId, hojeLocal()];
+  const query = useQuery({
+    queryKey: chave,
+    staleTime: 5 * 60_000,
+    enabled: !!organizationId,
+    queryFn: async (): Promise<ResumoDia | null> => {
+      const { data, error } = await supabase
+        .from("crm_central_resumos" as never)
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("dia", hojeLocal())
+        .maybeSingle();
+      if (error) throw error;
+      if (data) return data as unknown as ResumoDia;
+      const r = await chamar<{ resumo: ResumoDia }>({ acao: "resumo" });
+      return r.resumo;
+    },
+  });
+  return {
+    ...query,
+    /** Refaz o resumo riscando o que já foi feito. */
+    atualizar: async () => {
+      const r = await chamar<{ resumo: ResumoDia }>({ acao: "resumo", forcar: true });
+      qc.setQueryData(chave, r.resumo);
+      return r.resumo;
+    },
+    marcar: async (indice: number, feito: boolean) => {
+      const atual = query.data;
+      if (!atual) return;
+      const plano = atual.plano.map((p, i) => (i === indice ? { ...p, feito } : p));
+      qc.setQueryData(chave, { ...atual, plano });
+      const { error } = await supabase
+        .from("crm_central_resumos" as never)
+        .update({ plano } as never)
+        .eq("organization_id", atual.organization_id)
+        .eq("dia", atual.dia);
+      if (error) {
+        qc.setQueryData(chave, atual);
+        throw error;
+      }
+    },
+  };
+}
