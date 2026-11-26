@@ -121,3 +121,32 @@ export function somarOrcamentos(orcamentos: Orcamento[]) {
 export function idDoLink(link: string, padrao: string) {
   return extrairIds(link, padrao)[0] ?? (/^\d+$/.test(link.trim()) ? link.trim() : null);
 }
+
+/** Campos de formulário estilo Rails ("user[email]") -> objeto JSON ({ user: { email } }). */
+export function camposParaJson(pares: [string, string][]) {
+  const raiz: Record<string, unknown> = {};
+  for (const [campo, valor] of pares) {
+    const partes = campo.split("[").map((p) => p.replace("]", ""));
+    let atual = raiz as Record<string, unknown>;
+    partes.forEach((p, i) => {
+      if (i === partes.length - 1) atual[p] = valor;
+      else atual = (atual[p] ??= {}) as Record<string, unknown>;
+    });
+  }
+  return raiz;
+}
+
+/** Estrutura de uma página (sem os dados): endereços de dados, scripts e cabeçalhos de tabela. */
+export function estruturaDaPagina(html: string) {
+  const unicos = (xs: string[]) => [...new Set(xs)].slice(0, 40);
+  const caminhos = unicos(
+    [...html.matchAll(/["'`](\/[a-z0-9_\/-]+(?:\.json)?(?:\?[a-z0-9_=&%{}.-]*)?)["'`]/gi)]
+      .map((m) => m[1])
+      .filter((c) => !/\.(css|js|png|jpe?g|svg|ico|woff2?)(\?|$)/i.test(c)),
+  );
+  const scripts = unicos([...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1].split("?")[0].split("/").pop() ?? ""));
+  const atributos = unicos([...html.matchAll(/data-(url|source|endpoint|events|path)=["']([^"']+)["']/gi)].map((m) => `${m[1]}=${m[2]}`));
+  const tabelas = unicos([...html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)].map((m) => m[1].replace(/<[^>]+>/g, "").trim()).filter(Boolean));
+  const titulo = (html.match(/<title>([^<]*)/i)?.[1] ?? "").trim();
+  return { titulo, caminhos, scripts, atributos, tabelas };
+}

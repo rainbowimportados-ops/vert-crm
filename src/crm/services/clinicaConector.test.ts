@@ -78,3 +78,23 @@ describe("página do paciente para o Claude", () => {
     ])).toEqual({ aguardando: 13150.5, aprovado: 540 });
   });
 });
+
+describe("login em JSON e reconhecimento de página", () => {
+  it("transforma campos do formulário em JSON aninhado", async () => {
+    const { camposParaJson } = await import("../../../supabase/functions/crm-clinica/lib");
+    expect(camposParaJson([["user[email]", "a@b.com"], ["user[password]", "x"]])).toEqual({ user: { email: "a@b.com", password: "x" } });
+    expect(camposParaJson([["email", "a@b.com"]])).toEqual({ email: "a@b.com" });
+  });
+  it("descreve a estrutura da página sem o conteúdo", async () => {
+    const { estruturaDaPagina } = await import("../../../supabase/functions/crm-clinica/lib");
+    const e = estruturaDaPagina(`<title>Agenda</title><div data-url="/appointments/events.json"></div>
+      <script src="/assets/agenda-123.js?v=2"></script><script>fetch("/appointment_by_chair/list.json?date=2026-11-26")</script>
+      <table><tr><th>Horário</th><th>Paciente</th></tr><tr><td>09:00</td><td>Fulano</td></tr></table>`);
+    expect(e.titulo).toBe("Agenda");
+    expect(e.atributos).toContain("url=/appointments/events.json");
+    expect(e.caminhos).toContain("/appointment_by_chair/list.json?date=2026-11-26");
+    expect(e.scripts).toContain("agenda-123.js");
+    expect(e.tabelas).toEqual(["Horário", "Paciente"]);
+    expect(JSON.stringify(e)).not.toContain("Fulano");
+  });
+});
