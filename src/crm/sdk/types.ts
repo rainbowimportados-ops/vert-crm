@@ -167,6 +167,8 @@ export interface CrmMessage {
   mediaUrl?: string | null;
   createdAt: string; // ISO
   deliveryStatus: MessageDeliveryStatus;
+  /** Texto do áudio, quando alguém clicou em Transcrever. */
+  transcricao?: string | null;
 }
 
 export type InboxFilterKey =

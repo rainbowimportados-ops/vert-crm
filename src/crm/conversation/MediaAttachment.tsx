@@ -3,6 +3,7 @@ import { Download, FileText, Image as ImageIcon, Loader2, RefreshCw } from "luci
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import type { CrmMessage } from "../sdk/types";
+import { useAcoesCentral } from "../services/central";
 
 type MediaResult = {
   url: string;
@@ -81,7 +82,12 @@ export function MediaAttachment({ message, compact = false }: { message: CrmMess
     return <video src={media.url} controls preload="metadata" className={cn("w-full rounded-xl bg-black", compact ? "max-h-48" : "max-h-80")} />;
   }
   if (message.type === "audio") {
-    return <audio src={media.url} controls preload="metadata" className="h-10 w-full min-w-56 max-w-full" />;
+    return (
+      <div className="min-w-56 max-w-full">
+        <audio src={media.url} controls preload="metadata" className="h-10 w-full" />
+        {!compact && <Transcricao message={message} />}
+      </div>
+    );
   }
   return (
     <a
@@ -95,5 +101,38 @@ export function MediaAttachment({ message, compact = false }: { message: CrmMess
       <span className="min-w-0 flex-1 truncate text-xs font-medium">{name}</span>
       <Download className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
     </a>
+  );
+}
+
+/** Texto do áudio: aparece quando já existe; senão, botão "Transcrever" (só ao clicar). */
+function Transcricao({ message }: { message: CrmMessage }) {
+  const { transcrever } = useAcoesCentral();
+  const [texto, setTexto] = useState<string | null>(message.transcricao ?? null);
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  if (texto) return <p className="mt-1.5 whitespace-pre-wrap text-xs italic leading-snug opacity-90">“{texto}”</p>;
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={async () => {
+          setOcupado(true);
+          setErro(null);
+          try {
+            setTexto((await transcrever(message.id)).transcricao);
+          } catch (e) {
+            setErro(e instanceof Error ? e.message : "Não deu agora.");
+          } finally {
+            setOcupado(false);
+          }
+        }}
+        disabled={ocupado}
+        className="inline-flex items-center gap-1 text-[11px] font-medium underline-offset-2 hover:underline disabled:opacity-60"
+      >
+        {ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+        {ocupado ? "Transcrevendo…" : "Transcrever"}
+      </button>
+      {erro && <p className="text-[11px] text-destructive">{erro}</p>}
+    </div>
   );
 }
